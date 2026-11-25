@@ -122,8 +122,8 @@ export const TEMPLATE_DEFINITIONS: TemplateDefinition[] = [
     sample: {
       ...base,
       kicker: 'What we offer',
-      title: 'Complete support for your automation parts',
-      description: 'From sourcing a discontinued board to repairing a failed drive, one team handles the whole job.',
+      title: 'Complete support for your model engines',
+      description: 'From choosing the right kit to sourcing a spare part, one team handles the whole job.',
       style: { ...DEFAULT_SECTION_STYLE, background: 'light', align: 'center', columns: 3 },
       items: [
         blankItem({ title: 'Parts sourcing', text: 'New, refurbished and obsolete parts from 20+ brands.', href: '/products' }),

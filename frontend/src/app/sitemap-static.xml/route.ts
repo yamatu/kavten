@@ -40,21 +40,24 @@ export async function GET() {
       lastModified,
       changeFrequency: 'daily',
       priority: '0.85',
-      availableLocales: EN_ZH_LOCALES,
+      availableLocales: ENGLISH_HOME_LOCALE,
     },
     {
       pathname: '/about',
       lastModified,
       changeFrequency: 'monthly',
       priority: '0.8',
-      availableLocales: ALL_PUBLIC_LOCALES,
+      // The page body is English on every locale URL and the locale metadata
+      // now marks the copies noindex; listing them here would advertise URLs
+      // that ask not to be indexed.
+      availableLocales: ENGLISH_HOME_LOCALE,
     },
     {
       pathname: '/contact',
       lastModified,
       changeFrequency: 'monthly',
       priority: '0.8',
-      availableLocales: ALL_PUBLIC_LOCALES,
+      availableLocales: ENGLISH_HOME_LOCALE,
     },
     {
       pathname: '/faq',
@@ -68,35 +71,45 @@ export async function GET() {
       lastModified,
       changeFrequency: 'yearly',
       priority: '0.4',
-      availableLocales: EN_ZH_LOCALES,
+      // Policy pages are edited once in English; the /zh copy is the same page
+      // and is marked noindex in metadata.
+      availableLocales: ENGLISH_HOME_LOCALE,
     },
     {
       pathname: '/terms',
       lastModified,
       changeFrequency: 'yearly',
       priority: '0.4',
-      availableLocales: EN_ZH_LOCALES,
+      // Policy pages are edited once in English; the /zh copy is the same page
+      // and is marked noindex in metadata.
+      availableLocales: ENGLISH_HOME_LOCALE,
     },
     {
       pathname: '/warranty-policy',
       lastModified,
       changeFrequency: 'monthly',
       priority: '0.5',
-      availableLocales: EN_ZH_LOCALES,
+      // Policy pages are edited once in English; the /zh copy is the same page
+      // and is marked noindex in metadata.
+      availableLocales: ENGLISH_HOME_LOCALE,
     },
     {
       pathname: '/shipping-policy',
       lastModified,
       changeFrequency: 'monthly',
       priority: '0.5',
-      availableLocales: EN_ZH_LOCALES,
+      // Policy pages are edited once in English; the /zh copy is the same page
+      // and is marked noindex in metadata.
+      availableLocales: ENGLISH_HOME_LOCALE,
     },
     {
       pathname: '/returns',
       lastModified,
       changeFrequency: 'monthly',
       priority: '0.5',
-      availableLocales: EN_ZH_LOCALES,
+      // Policy pages are edited once in English; the /zh copy is the same page
+      // and is marked noindex in metadata.
+      availableLocales: ENGLISH_HOME_LOCALE,
     },
   ]
 

@@ -3,7 +3,10 @@ import { getSiteUrl } from '@/lib/url';
 
 export const SITE_NAME = 'Kavten';
 
-const SITE_NAME_SUFFIX = /(?:\s*\|\s*VIBO\s*CNC)+\s*$/i;
+// Imported titles still carry the previous site name; strip it (and the
+// current one) before the Kavten suffix is appended, otherwise published titles
+// keep advertising a different brand.
+const SITE_NAME_SUFFIX = /(?:\s*\|\s*(?:VIBO\s*CNC|VIBOCNC|KAVTEN))+\s*$/i;
 
 export function withoutSiteNameSuffix(title: string): string {
   return title.replace(SITE_NAME_SUFFIX, '').trim();

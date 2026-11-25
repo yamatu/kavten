@@ -69,7 +69,7 @@ export default function BrandCarousel({ content, locale }: { content?: HomepageC
   const data = normalizeBrandCarouselData(content?.data);
   const title = content?.title || 'Brands We Supply';
   const subtitle = content?.subtitle
-    || 'Genuine CNC, PLC, drive, servo and sensor parts from the world’s leading automation manufacturers.';
+    || 'Working model engines, RC kits and spare parts from the brands we stock.';
   const buttonText = content?.button_text || 'View all products';
   const buttonUrl = content?.button_url || '/products';
   const rows = data.rows === 2

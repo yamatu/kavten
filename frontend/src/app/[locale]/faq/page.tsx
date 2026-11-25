@@ -18,7 +18,7 @@ export async function generateMetadata({ params }: { params: LocaleRouteParams }
     '/faq',
     title,
     description,
-    'model engine parts FAQ, CNC parts support, PLC HMI servo drives, repair evaluation, worldwide shipping, warranty information, compatibility support',
+    'model engine FAQ, model engine kits, Stirling engine, steam engine model, RC car parts, worldwide shipping, warranty information, compatibility support',
   ),
     alternates: { canonical, languages },
     openGraph: { title, description, type: 'website', url: canonical },

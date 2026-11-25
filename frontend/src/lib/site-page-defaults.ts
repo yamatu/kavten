@@ -8,7 +8,7 @@ export interface SitePageDefault {
 }
 
 export const sitePageDefaults: SitePageDefault[] = [
-  { pageKey: 'privacy', title: 'Privacy Policy', summary: 'How Kavten collects, uses, and protects personal information.', metaDescription: 'Learn how Kavten protects personal information and handles data for customers purchasing CNC and model engine parts.', metaKeywords: 'privacy policy, data protection, CNC parts, Kavten', content: `## Information We Collect
+  { pageKey: 'privacy', title: 'Privacy Policy', summary: 'How Kavten collects, uses, and protects personal information.', metaDescription: 'Learn how Kavten protects personal information and handles data for customers purchasing model engines and parts.', metaKeywords: 'privacy policy, data protection, Kavten', content: `## Information We Collect
 
 We collect information you provide when placing an order, requesting a quote, contacting support, creating an account, or subscribing to updates. This may include your name, company, email address, phone number, billing and shipping details, and order information.
 
@@ -34,7 +34,7 @@ You may request access, correction, or deletion of personal information where ap
 ## Contact
 
 For privacy questions, contact [flora@kavten.com](mailto:flora@kavten.com).` },
-  { pageKey: 'terms', title: 'Terms of Service', summary: 'Terms that apply when using the Kavten website and purchasing products.', metaDescription: 'Read Kavten terms for orders, payment, shipping, returns, warranties, website use, and model engine parts purchases.', metaKeywords: 'terms of service, CNC parts terms, Kavten purchase policy', content: `## Acceptance of Terms
+  { pageKey: 'terms', title: 'Terms of Service', summary: 'Terms that apply when using the Kavten website and purchasing products.', metaDescription: 'Read Kavten terms for orders, payment, shipping, returns, warranties, website use, and model engine parts purchases.', metaKeywords: 'terms of service, Kavten purchase policy', content: `## Acceptance of Terms
 
 By using this website or purchasing from Kavten, you agree to these terms. Product quotations, invoices, and separately agreed written terms may also apply.
 
@@ -61,7 +61,7 @@ To the extent permitted by law, liability is limited to the amount paid for the 
 ## Contact
 
 Questions may be sent to [flora@kavten.com](mailto:flora@kavten.com).` },
-  { pageKey: 'warranty-policy', title: 'Warranty Policy', summary: 'Coverage, exclusions, and claims process for products supplied by Kavten.', metaDescription: 'Review warranty coverage, exclusions, and the claims process for Kavten model engine and CNC parts.', metaKeywords: 'warranty policy, Engine parts warranty, CNC repair claim', content: `## Coverage
+  { pageKey: 'warranty-policy', title: 'Warranty Policy', summary: 'Coverage, exclusions, and claims process for products supplied by Kavten.', metaDescription: 'Review warranty coverage, exclusions, and the claims process for Kavten model engines and spare parts.', metaKeywords: 'warranty policy, model engine warranty, engine parts claim', content: `## Coverage
 
 - Standard coverage is 12 months (1 year) unless the quotation or product page states otherwise
 - Coverage applies to verified functional defects under normal operating conditions
@@ -88,7 +88,7 @@ Do not return an item until return instructions are issued. See our [Returns & R
 ## Contact
 
 Email [flora@kavten.com](mailto:flora@kavten.com) for warranty support.` },
-  { pageKey: 'shipping-policy', title: 'Shipping Policy', summary: 'Shipping destinations, handling times, carriers, tracking, and customs information.', metaDescription: 'Shipping policy for Kavten orders, including handling, worldwide delivery, tracking, packaging, duties, and customs.', metaKeywords: 'shipping policy, CNC parts delivery, worldwide industrial parts shipping', content: `## Handling Times
+  { pageKey: 'shipping-policy', title: 'Shipping Policy', summary: 'Shipping destinations, handling times, carriers, tracking, and customs information.', metaDescription: 'Shipping policy for Kavten orders, including handling, worldwide delivery, tracking, packaging, duties, and customs.', metaKeywords: 'shipping policy, model engine delivery, worldwide parts shipping', content: `## Handling Times
 
 In-stock items are normally dispatched within 1-2 days after payment and order verification, with an estimated transit time of 4-5 DAYS. Lead times for backordered or special-order products are confirmed separately.
 
@@ -103,7 +103,7 @@ Electronic products are packed with suitable anti-static and protective material
 ## Duties and Customs
 
 Unless otherwise agreed, import duties, taxes, brokerage charges, and customs requirements are the recipient's responsibility.` },
-  { pageKey: 'returns', title: 'Returns Policy', summary: 'Eligibility, authorization, inspection, and refund terms for product returns.', metaDescription: 'Read Kavten return eligibility, authorization, inspection, refund, and shipping requirements for CNC and automation parts.', metaKeywords: 'returns policy, CNC parts return, industrial parts refund', content: `## Return Authorization
+  { pageKey: 'returns', title: 'Returns Policy', summary: 'Eligibility, authorization, inspection, and refund terms for product returns.', metaDescription: 'Read Kavten return eligibility, authorization, inspection, refund, and shipping requirements for model engines and parts.', metaKeywords: 'returns policy, model engine return, parts refund', content: `## Return Authorization
 
 Contact us before returning any product. Unauthorized returns may be refused. Provide the order number, SKU, reason for return, and product condition.
 
@@ -118,7 +118,7 @@ Returned products are inspected before a refund or credit is approved. Return sh
 ## Packaging
 
 Use protective packaging appropriate for industrial electronics and include all accessories supplied with the product.` },
-  { pageKey: 'technical-support', title: 'Technical Support', summary: 'Product selection, compatibility, troubleshooting, and remote support.', metaDescription: 'Get product selection, compatibility, troubleshooting, and remote technical support for CNC and model engine parts.', metaKeywords: 'technical support, CNC troubleshooting, model engine support', content: `## How We Help
+  { pageKey: 'technical-support', title: 'Technical Support', summary: 'Product selection, compatibility, troubleshooting, and remote support.', metaDescription: 'Get product selection, compatibility, troubleshooting, and remote technical support for model engines and parts.', metaKeywords: 'technical support, model engine troubleshooting, engine parts support', content: `## How We Help
 
 - Product identification and replacement selection
 - Compatibility and specification review

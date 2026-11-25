@@ -22,6 +22,9 @@ const PUBLIC_SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://kavten.com
 
 const GENERIC_BRAND_LABEL = 'model engine';
 const GENERIC_MANUFACTURER_LABEL = 'model engine parts manufacturer';
+// Used when the admin commerce policy leaves the destination list open: GMC and
+// Google both want an explicit shippingDestination in OfferShippingDetails.
+const DEFAULT_MERCHANT_COUNTRIES = ['US', 'CA', 'GB', 'DE', 'FR', 'AU', 'JP'];
 
 type JsonLdValue =
   | string
@@ -43,6 +46,8 @@ interface ProductSEOProps {
    * seeded defaults are used so the page never publishes an empty promise.
    */
   commercePolicy?: CommercePolicySetting;
+  /** Server-supplied date (YYYY-MM-DD) that anchors a BackOrder validFrom. */
+  referenceDate?: string;
 }
 
 function resolvePolicy(policy?: CommercePolicySetting): CommercePolicySetting {
@@ -51,9 +56,56 @@ function resolvePolicy(policy?: CommercePolicySetting): CommercePolicySetting {
 
 /** schema.org return fee enum derived from who pays return freight. */
 function mapReturnFees(policy: CommercePolicySetting): string {
+  // MerchantReturnPolicy.returnFees only accepts FreeReturn or
+  // ReturnFeesCustomerResponsibility; ReturnShippingFees is not an enum value
+  // and is rejected by Rich Results / Merchant Center.
   return policy.return_shipping_payer === 'merchant'
     ? 'https://schema.org/FreeReturn'
-    : 'https://schema.org/ReturnShippingFees';
+    : 'https://schema.org/ReturnFeesCustomerResponsibility';
+}
+
+/**
+ * Parse a free-form lead time ("4-5 DAYS", "1 WEEK") into a bounded day count
+ * so a BackOrder offer can publish a deterministic validFrom.
+ */
+function parseLeadTimeDays(raw?: string, fallbackDays = 7): number {
+  const text = String(raw || '').trim().toLowerCase();
+  if (!text) return fallbackDays;
+  const weekMatch = text.match(/(\d+)\s*(?:-\s*(\d+))?\s*(?:weeks?|wks?)\b/);
+  if (weekMatch) {
+    const weeks = Number(weekMatch[2] || weekMatch[1]);
+    if (Number.isFinite(weeks) && weeks > 0) return Math.min(Math.max(weeks * 7, 1), 90);
+  }
+  const dayMatch = text.match(/(\d+)\s*(?:-\s*(\d+))?\s*(?:days?|d)\b/);
+  if (dayMatch) {
+    const days = Number(dayMatch[2] || dayMatch[1]);
+    if (Number.isFinite(days) && days > 0) return Math.min(Math.max(days, 1), 90);
+  }
+  return fallbackDays;
+}
+
+/**
+ * An ISO timestamp for when a back-ordered item is expected to ship. The base
+ * date is supplied by the server so SSR HTML and hydration stay identical.
+ */
+function computeBackOrderValidFrom(leadTime?: string, referenceDate?: string): string {
+  const days = parseLeadTimeDays(leadTime, 7);
+  const parsed = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(referenceDate || '').trim());
+  let baseYear: number;
+  let baseMonth: number;
+  let baseDay: number;
+  if (parsed) {
+    baseYear = Number(parsed[1]);
+    baseMonth = Number(parsed[2]) - 1;
+    baseDay = Number(parsed[3]);
+  } else {
+    const now = new Date();
+    baseYear = now.getUTCFullYear();
+    baseMonth = now.getUTCMonth();
+    baseDay = now.getUTCDate();
+  }
+  const target = new Date(Date.UTC(baseYear, baseMonth, baseDay + days));
+  return `${target.toISOString().slice(0, 10)}T00:00:00Z`;
 }
 
 function mapConditionType(condition?: string): string {
@@ -132,7 +184,7 @@ function toJsonLd(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
-export function ProductSEO({ product, category, categoryBreadcrumb, baseUrl = PUBLIC_SITE_URL, contentLocale, commercePolicy }: ProductSEOProps) {
+export function ProductSEO({ product, category, categoryBreadcrumb, baseUrl = PUBLIC_SITE_URL, contentLocale, commercePolicy, referenceDate }: ProductSEOProps) {
   const { locale, t, href } = usePublicI18n();
   const policy = resolvePolicy(commercePolicy);
   const productPath = `/products/${productPathSegment(product)}`;
@@ -154,6 +206,8 @@ export function ProductSEO({ product, category, categoryBreadcrumb, baseUrl = PU
   const highPrice = variantPrices.length > 1 ? Math.max(...variantPrices) : product.price;
   const destinationCountries = commercePolicyDestinationCountries(policy);
   const returnCountry = normalizeText(policy.return_policy_country) || 'US';
+  const leadTime = normalizeText(product.lead_time) || policy.default_lead_time;
+  const fallbackCountries = destinationCountries.length > 0 ? destinationCountries : DEFAULT_MERCHANT_COUNTRIES;
   const schemaLocale = contentLocale || locale;
   const localeConfig = typeof Intl !== 'undefined'
     ? new Intl.Locale(schemaLocale === 'zh' ? 'zh-CN' : schemaLocale).toString()
@@ -190,6 +244,9 @@ export function ProductSEO({ product, category, categoryBreadcrumb, baseUrl = PU
     "value": String(attribute.attribute_value),
   })) || [];
   const additionalProperties = [...specProperties, ...attributeProperties];
+  if (facts.age) {
+    additionalProperties.push({ "@type": "PropertyValue", "name": "Recommended age", "value": facts.age });
+  }
 
   // Google flags any Product node lacking offers, review, or aggregateRating as
   // a critical error, and an Offer needs a price above zero. Quote-only records
@@ -205,6 +262,7 @@ export function ProductSEO({ product, category, categoryBreadcrumb, baseUrl = PU
     "name": semanticName,
     "sku": product.sku,
     "productID": product.sku,
+    "mpn": product.part_number || product.sku,
     "description": description,
     "inLanguage": localeConfig,
     "disambiguatingDescription": answerFirstSummary,
@@ -228,11 +286,6 @@ export function ProductSEO({ product, category, categoryBreadcrumb, baseUrl = PU
     "datePublished": product.created_at || undefined,
     "dateModified": product.updated_at || undefined,
     "keywords": buildProductSeoKeywords(semanticProduct),
-    "audience": {
-      "@type": "PeopleAudience",
-      "audienceType": "Model engine hobbyists, makers and collectors",
-      ...(facts.age && /^\d+/.test(facts.age) ? { "suggestedMinAge": Number.parseInt(facts.age, 10) } : {})
-    },
     "offers": hasValidOffer ? {
       ...(lowPrice !== highPrice
         ? {
@@ -251,6 +304,11 @@ export function ProductSEO({ product, category, categoryBreadcrumb, baseUrl = PU
       "availability": product.stock_quantity > 0
         ? "https://schema.org/InStock"
         : "https://schema.org/BackOrder",
+      // BackOrder offers need validFrom; without it Rich Results reports the
+      // offer as incomplete.
+      ...(product.stock_quantity <= 0
+        ? { "validFrom": computeBackOrderValidFrom(leadTime, referenceDate) }
+        : {}),
       "seller": {
         "@type": "Organization",
         "@id": `${baseUrl}/#organization`,
@@ -267,14 +325,12 @@ export function ProductSEO({ product, category, categoryBreadcrumb, baseUrl = PU
           "value": policy.shipping_rate_amount || 0,
           "currency": policy.shipping_currency || "USD"
         },
-        // An empty destination list means worldwide coverage; schema.org treats
-        // an omitted shippingDestination as unconstrained rather than wrong.
-        ...(destinationCountries.length > 0 ? {
-          "shippingDestination": destinationCountries.map((country) => ({
-            "@type": "DefinedRegion",
-            "addressCountry": country
-          }))
-        } : {}),
+        // Always publish a destination list: Google and Merchant Center treat a
+        // missing shippingDestination as missing shipping data.
+        "shippingDestination": fallbackCountries.map((country) => ({
+          "@type": "DefinedRegion",
+          "addressCountry": country
+        })),
         "deliveryTime": {
           "@type": "ShippingDeliveryTime",
           "handlingTime": {
@@ -293,7 +349,7 @@ export function ProductSEO({ product, category, categoryBreadcrumb, baseUrl = PU
       },
       "hasMerchantReturnPolicy": {
         "@type": "MerchantReturnPolicy",
-        "applicableCountry": returnCountry,
+        "applicableCountry": Array.from(new Set([returnCountry, ...fallbackCountries])),
         "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
         "merchantReturnDays": policy.return_window_days,
         "returnMethod": "https://schema.org/ReturnByMail",

@@ -15,6 +15,10 @@ export const PUBLIC_LOCALES = [
 export type PublicLocale = (typeof PUBLIC_LOCALES)[number]['code'];
 
 export const DEFAULT_PUBLIC_LOCALE: PublicLocale = 'en';
+// Locales that may appear in hreflang and in the sitemap by default. Products,
+// categories and articles add their own locale once a real translation exists;
+// everything else is a UI-only language and must not be announced to crawlers.
+export const INDEXABLE_PUBLIC_LOCALES: readonly PublicLocale[] = [DEFAULT_PUBLIC_LOCALE];
 export const PUBLIC_LOCALE_COOKIE = 'kavten_locale';
 export const PUBLIC_LOCALE_SELECTION_PARAM = 'site_locale';
 
@@ -60,11 +64,14 @@ export function isLimitedTranslationPublicPath(pathname: string): boolean {
   ));
 }
 
-export function isAutomaticLocaleRedirectAllowed(pathname: string): boolean {
-  const normalized = stripLocaleFromPathname(pathname || '/');
-  return !AUTO_LOCALE_REDIRECT_EXCLUDED_PATHS.some((path) => (
-    normalized === path || normalized.startsWith(`${path}/`)
-  ));
+export function isAutomaticLocaleRedirectAllowed(_pathname: string): boolean {
+  // Unprefixed URLs always serve the canonical English storefront. Automatic
+  // redirects driven by Accept-Language, IP country or an old cookie made one
+  // URL return different content per request: crawlers index the wrong
+  // language, shared caches store a redirect, and any AI crawler missing from
+  // the user-agent allowlist is bounced to a translated copy of an English
+  // page. Visitors switch language explicitly (?site_locale= or /<locale>/...).
+  return false;
 }
 
 export function isPublicLocale(value?: string | null): value is PublicLocale {
@@ -168,7 +175,10 @@ export function localizePublicPath(href: string, locale: PublicLocale): string {
 export function buildLanguageAlternates(
   baseUrl: string,
   pathname: string,
-  availableLocales: readonly PublicLocale[] = PUBLIC_LOCALES.map((locale) => locale.code),
+  // Callers that publish real translations pass their own list; every other
+  // page must not announce alternates for locales that only serve English
+  // fallback copy.
+  availableLocales: readonly PublicLocale[] = INDEXABLE_PUBLIC_LOCALES,
 ): Record<string, string> {
   const cleanBase = baseUrl.replace(/\/+$/, '');
   const cleanPath = stripLocaleFromPathname(pathname || '/');

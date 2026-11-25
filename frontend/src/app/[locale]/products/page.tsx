@@ -136,7 +136,7 @@ export async function generateMetadata({ params: routeParams, searchParams }: {
   if (pageSize !== 48) paginationQuery.set('page_size', String(pageSize));
 
   let title = 'Model Engine & RC Parts';
-  let description = 'Industrial automation and CNC parts supplier since 2007. Browse current, legacy and obsolete components across 20+ brands with worldwide shipping.';
+  let description = 'Working model engines, RC cars, Stirling and steam engines, 3D metal kits and spare parts. Browse every Kavten series with worldwide shipping.';
   const requestLocale = await resolveRouteLocale(routeParams);
   const defaultMetadataPaths = await getLocalizedMetadataPathsWithQuery(requestLocale, '/products', paginationQuery.toString());
 
@@ -151,7 +151,7 @@ export async function generateMetadata({ params: routeParams, searchParams }: {
 
     if (category && categoryPath) {
       title = `${category.name} - Parts`;
-      description = `Professional ${category.name} for CNC systems. High-quality model engine components with worldwide shipping.`;
+      description = `Shop ${category.name} at Kavten: working model engines, kits and spare parts with worldwide shipping.`;
       const localizedCategory = localizeCategoryContent(category, requestLocale);
       title = `${localizedCategory.name} - ${translatePublicMessage(requestLocale, 'nav.products')}`;
       const categoryMetadataPaths = await getLocalizedMetadataPaths(requestLocale, categoryPath);
@@ -162,8 +162,8 @@ export async function generateMetadata({ params: routeParams, searchParams }: {
         description,
         robots: { index: true, follow: true },
         keywords: [
-          'CNC parts', 'model engine', 'servo motors', 'PCB boards',
-          'I/O modules', 'control units', category.name,
+          'model engines', 'model engine kits', 'Stirling engine', 'steam engine model',
+          'RC cars', 'engine model kit', category.name,
         ].filter(Boolean).join(', '),
         openGraph: {
           title: withSiteName(title),
@@ -190,7 +190,7 @@ export async function generateMetadata({ params: routeParams, searchParams }: {
         title,
         description,
         robots: { index: true, follow: true },
-        keywords: `${brandCategory.name} parts, ${brandCategory.name} automation, model engine parts, CNC parts, Kavten`,
+        keywords: `${brandCategory.name} model engines, ${brandCategory.name} engine kits, model engine parts, Kavten`,
         openGraph: { title: withSiteName(title), description, type: 'website', url: brandMetadataPaths.canonical },
         alternates: { canonical: brandMetadataPaths.canonical, languages: brandMetadataPaths.languages },
       };
@@ -199,7 +199,7 @@ export async function generateMetadata({ params: routeParams, searchParams }: {
 
   if (hasSearch) {
     title = `Search: ${searchQuery} - Parts`;
-    description = `Search results for "${searchQuery}" in CNC and model engine parts from a multi-brand supplier established in 2007.`;
+    description = `Search results for "${searchQuery}" in model engines, engine kits and spare parts from Kavten.`;
   }
 
   if (page > 1) title = `${title} - Page ${page}`;
@@ -217,8 +217,8 @@ export async function generateMetadata({ params: routeParams, searchParams }: {
       ? { index: false, follow: true }
       : { index: true, follow: true },
     keywords: [
-      'CNC parts', 'model engine', 'servo motors', 'PCB boards',
-      'I/O modules', 'control units', searchQuery,
+      'model engines', 'model engine kits', 'Stirling engine', 'steam engine model',
+      'RC cars', 'engine model kit', searchQuery,
     ].filter(Boolean).join(', '),
     openGraph: {
       title: withSiteName(title),

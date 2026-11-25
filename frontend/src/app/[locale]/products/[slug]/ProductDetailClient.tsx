@@ -51,6 +51,8 @@ import {
 
 interface ProductDetailClientProps {
   productSku: string;
+  /** Server date (YYYY-MM-DD) anchoring BackOrder offer validFrom. */
+  referenceDate?: string;
   initialProduct?: Product;
   contentLocale?: string;
   /** Admin-editable shipping / warranty / returns promise (server supplied). */
@@ -128,6 +130,7 @@ export default function ProductDetailClient({
   initialProduct,
   contentLocale,
   commercePolicy,
+  referenceDate,
   initialCategory,
   initialCategoryBreadcrumb,
   initialRelatedProducts,
@@ -419,19 +422,20 @@ export default function ProductDetailClient({
   // for the sales team to identify the quote request without leaking a runtime URL.
   const quoteEmailHref = `mailto:flora@kavten.com?subject=${encodeURIComponent(`Quote request: ${product.sku}`)}&body=${encodeURIComponent(`Hello, please provide price and lead time for ${computedHeading} (${product.sku}).`)}`;
 
+  // Fallback copy only restates facts the record actually carries. The earlier
+  // version published industrial-automation sentences ("for CNC systems", "EMI
+  // protection") on a model-engine catalogue: wrong topic, identical wording on
+  // every product of a category, and exactly the pattern thin-content filters
+  // remove. Products without a description now stay short instead of invented.
   const getFallbackDescription = () => {
     const sku = product.sku || '';
-    const price = product.price ? formatCurrency(product.price) : '';
-    const stockText = product.stock_quantity && product.stock_quantity > 0 ? 'In stock and ready to ship.' : 'Available for order with fast handling.';
-    const templates: Record<string, string> = {
-      'Power Supply': `${brandName ? brandName + ' ' : ''}${sku} Power Supply Unit delivers reliable power for CNC systems. Industrial-grade design with short-circuit protection and status indicators. ${stockText} ${price ? `Priced at ${price}.` : ''}`,
-      'Servo': `${brandName ? brandName + ' ' : ''}${sku} Servo component provides precise motion control with advanced feedback and fault diagnostics. Ideal for high-precision CNC applications. ${stockText} ${price ? `Current price: ${price}.` : ''}`,
-      'Motor': `${brandName ? brandName + ' ' : ''}${sku} Motor ensures high-efficiency performance and stable torque for continuous operation in demanding environments. ${stockText}`,
-      'Interface': `${brandName ? brandName + ' ' : ''}${sku} Interface Board ensures robust signal processing and EMI protection, enabling reliable communication in automation systems. ${stockText}`,
-      'PCB': `${brandName ? brandName + ' ' : ''}${sku} Control PCB for CNC systems, engineered for reliability and long service life. ${stockText}`,
-    };
-    const key = Object.keys(templates).find(k => categoryName.toLowerCase().includes(k.toLowerCase()));
-    return key ? templates[key] : `${brandName ? brandName + ' ' : ''}${sku} ${categoryName} for CNC and model engine. ${stockText}`;
+    const stockText = product.stock_quantity && product.stock_quantity > 0 ? 'In stock.' : 'Available to order.';
+    const factText = getProductFacts(product, product.category?.slug)
+      .filter((fact) => ['engine', 'cylinders', 'power', 'build', 'parts', 'scale', 'age'].includes(fact.key))
+      .slice(0, 4)
+      .map((fact) => `${fact.label}: ${fact.value}.`);
+    const headline = `${brandName ? `${brandName} ` : ''}${sku}${categoryName ? ` - ${categoryName}` : ''}.`;
+    return [headline, ...factText, stockText].join(' ');
   };
 
   const specs = parseTechnicalSpecs(product.technical_specs);
@@ -470,6 +474,7 @@ export default function ProductDetailClient({
         categoryBreadcrumb={categoryBreadcrumb}
         contentLocale={contentLocale}
         commercePolicy={commercePolicy}
+        referenceDate={referenceDate}
       />
 
       <div className="site-page-shell min-h-screen">
@@ -518,11 +523,11 @@ export default function ProductDetailClient({
                 <span className="truncate">{categoryName}</span>
               </div>
               <h1 className="break-words text-xl font-bold leading-snug tracking-tight text-slate-950 sm:text-2xl lg:text-3xl">{computedHeading}</h1>
-              {reviewSummary.count > 0 && (
+              {reviewSummary.ratedCount > 0 && (
                 <a href="#reviews" className="mt-2 inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-[var(--site-primary)]">
                   <RatingStars rating={reviewSummary.average} />
                   <span className="font-semibold text-slate-900">{reviewSummary.average.toFixed(1)}</span>
-                  <span>({t('review.reviewsLink', { count: reviewSummary.count })})</span>
+                  <span>({t('review.reviewsLink', { count: reviewSummary.ratedCount })})</span>
                 </a>
               )}
 

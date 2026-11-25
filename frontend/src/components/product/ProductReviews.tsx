@@ -29,10 +29,17 @@ export function RatingStars({ rating, className = 'h-4 w-4' }: { rating: number;
   );
 }
 
+/**
+ * Reviews transcribed from another marketplace (source set, no matching order)
+ * stay visible but never feed the rating this page advertises. Google only
+ * accepts the store's own, order-backed reviews for rating snippets, so the
+ * headline rating and the JSON-LD aggregateRating must use the same subset.
+ */
 export function summarizeReviews(reviews?: ProductReview[]) {
   const approved = (reviews || []).filter((r) => r.is_approved);
-  const average = approved.length ? approved.reduce((sum, r) => sum + r.rating, 0) / approved.length : 0;
-  return { approved, count: approved.length, average };
+  const rated = approved.filter((r) => r.is_verified || !r.source);
+  const average = rated.length ? rated.reduce((sum, r) => sum + r.rating, 0) / rated.length : 0;
+  return { approved, rated, count: approved.length, ratedCount: rated.length, average };
 }
 
 function apiErrorMessage(error: unknown): string {
@@ -47,7 +54,7 @@ interface ProductReviewsProps {
 
 export default function ProductReviews({ productId, reviews }: ProductReviewsProps) {
   const { locale, t, href } = usePublicI18n();
-  const { approved, count, average } = useMemo(() => summarizeReviews(reviews), [reviews]);
+  const { approved, rated, count, ratedCount, average } = useMemo(() => summarizeReviews(reviews), [reviews]);
   const [visible, setVisible] = useState(PAGE_SIZE);
   const [mounted, setMounted] = useState(false);
   const { isAuthenticated } = useCustomer();
@@ -56,9 +63,9 @@ export default function ProductReviews({ productId, reviews }: ProductReviewsPro
 
   const distribution = useMemo(() => {
     const buckets = [0, 0, 0, 0, 0];
-    for (const r of approved) buckets[Math.min(5, Math.max(1, r.rating)) - 1] += 1;
+    for (const r of rated) buckets[Math.min(5, Math.max(1, r.rating)) - 1] += 1;
     return buckets;
-  }, [approved]);
+  }, [rated]);
 
   const dateLocale = locale === 'zh' ? 'zh-CN' : locale;
   // Same value during SSR and the first client render to avoid a hydration mismatch.
@@ -71,7 +78,7 @@ export default function ProductReviews({ productId, reviews }: ProductReviewsPro
       <div className="site-detail-panel p-4 sm:p-6">
         <div className="grid gap-6 md:grid-cols-[minmax(0,240px)_1fr]">
           <div>
-            {count > 0 ? (
+            {ratedCount > 0 ? (
               <>
                 <div className="flex items-baseline gap-2">
                   <span className="text-4xl font-bold text-slate-950">{average.toFixed(1)}</span>
@@ -80,12 +87,12 @@ export default function ProductReviews({ productId, reviews }: ProductReviewsPro
                 <RatingStars rating={average} className="h-5 w-5" />
                 <span className="sr-only">{t('review.stars', { count: average.toFixed(1) })}</span>
                 <p className="mt-1 text-sm text-slate-600">
-                  {count === 1 ? t('review.basedOnOne') : t('review.basedOn', { count })}
+                  {ratedCount === 1 ? t('review.basedOnOne') : t('review.basedOn', { count: ratedCount })}
                 </p>
                 <div className="mt-4 space-y-1.5">
                   {[5, 4, 3, 2, 1].map((star) => {
                     const n = distribution[star - 1];
-                    const pct = count ? Math.round((n / count) * 100) : 0;
+                    const pct = ratedCount ? Math.round((n / ratedCount) * 100) : 0;
                     return (
                       <div key={star} className="flex items-center gap-2 text-xs text-slate-600">
                         <span className="w-6 shrink-0">{star}★</span>
@@ -98,9 +105,9 @@ export default function ProductReviews({ productId, reviews }: ProductReviewsPro
                   })}
                 </div>
               </>
-            ) : (
+            ) : count === 0 ? (
               <p className="text-sm text-slate-600">{t('review.none')}</p>
-            )}
+            ) : null}
           </div>
 
           <div>

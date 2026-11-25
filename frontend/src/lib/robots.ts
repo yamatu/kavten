@@ -2,6 +2,16 @@ export const PUBLIC_CONTENT_SIGNAL_POLICY = 'search=yes, ai-input=yes, ai-train=
 
 export const PRIVATE_ROBOTS_PATHS = [
   '/admin',
+  '/api/',
+  // Session, cart and checkout URLs render per-visitor state (or an empty
+  // shell for crawlers) and only waste crawl budget.
+  '/account',
+  '/cart',
+  '/checkout',
+  '/login',
+  '/register',
+  '/forgot-password',
+  '/orders/track',
 ] as const;
 
 export function buildRobotsTxt(siteUrl: string): string {

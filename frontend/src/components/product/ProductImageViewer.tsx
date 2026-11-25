@@ -18,14 +18,14 @@ interface ProductImageViewerProps {
 
 function getImageAlt(productName: string, productSku?: string, categoryName?: string, index: number = 0): string {
   const sku = productSku || '';
-  const cat = categoryName || 'Industrial Component';
+  const cat = categoryName || 'Model Engine Part';
   switch (index) {
     case 0:
       return `${sku} ${productName} - Product View | Kavten`.trim();
     case 1:
       return `${sku} ${productName} - Detail View | ${cat}`.trim();
     default:
-      return `${sku} ${productName} - View ${index + 1} | CNC Spare Part`.trim();
+      return `${sku} ${productName} - View ${index + 1} | Model Engine Part`.trim();
   }
 }
 

@@ -271,6 +271,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         initialProduct={initialProduct}
         contentLocale={hasRequestedTranslation ? locale : 'en'}
         commercePolicy={commercePolicy}
+        referenceDate={new Date().toISOString().slice(0, 10)}
         initialCategory={context.category}
         initialCategoryBreadcrumb={context.breadcrumb}
         initialRelatedProducts={context.related}

@@ -9,7 +9,7 @@ import { SITE_NAME } from "@/lib/seo";
 import { PublicI18nProvider } from "@/lib/i18n/PublicI18nProvider";
 import { getLocaleConfig, isPublicLocale, normalizePublicLocale } from "@/lib/i18n/config";
 import { getPublicMessageOverrides, translatePublicMessage } from "@/lib/i18n/messages";
-import type { LocaleRouteParams } from "@/lib/i18n/server";
+import { buildPublicRobots, type LocaleRouteParams } from "@/lib/i18n/server";
 import TrackingCode, { type PublicTrackingConfig } from "@/components/analytics/TrackingCode";
 
 const geistSans = Geist({
@@ -84,17 +84,10 @@ export async function generateMetadata({ params }: { params: LocaleRouteParams }
       "Kavten",
     ].join(", "),
     publisher: SITE_NAME,
-    robots: {
-      index: true,
-      follow: true,
-      googleBot: {
-        index: true,
-        follow: true,
-        'max-video-preview': -1,
-        'max-image-preview': 'large',
-        'max-snippet': -1,
-      },
-    },
+    // Default for every locale route: only indexable languages are advertised;
+    // pages that really publish a translation override this with their own
+    // translation-aware robots value.
+    robots: buildPublicRobots(locale),
     openGraph: {
       type: "website",
       locale: getLocaleConfig(locale).hreflang.replace('-', '_'),

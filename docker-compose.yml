@@ -1,0 +1,272 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: kavten_mysql
+    command:
+      - "--default-authentication-plugin=mysql_native_password"
+      - "--character-set-server=utf8mb4"
+      - "--collation-server=utf8mb4_unicode_ci"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-kavten_sales}
+      MYSQL_USER: ${MYSQL_USER:-kavten}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: kavten_redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    # Expose only to host if you really need it (default: internal only)
+    # ports:
+    #   - "127.0.0.1:6379:6379"
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  backend:
+    build:
+      context: ./backend
+      args:
+        BASE_REGISTRY: ${BASE_REGISTRY:-docker.io}
+    container_name: kavten_backend
+    environment:
+      GO_ENV: production
+      GIN_MODE: release
+      HOST: 0.0.0.0
+      PORT: 8080
+      SITE_URL: ${SITE_URL:-https://kavten.com}
+      BASE_URL: ${BASE_URL:-https://kavten.com}
+      FRONTEND_URL: ${FRONTEND_URL:-http://frontend:3000}
+      REVALIDATE_SECRET: ${REVALIDATE_SECRET:-}
+
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${MYSQL_USER:-kavten}
+      DB_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}
+      DB_NAME: ${MYSQL_DATABASE:-kavten_sales}
+
+      # CORS: allow the browser origin(s) you access the site from.
+      # If you run Nginx on the host for TLS, set CORS_ORIGINS to your domain(s).
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://kavten.com}
+      # The eBay collector runs from a chrome-extension:// origin and still
+      # requires the normal admin login + JWT authorization.
+      # Credentialed CORS is echoed back for any matching origin, so leave this
+      # false and pin the exact extension id via CORS_EXTENSION_ORIGINS.
+      CORS_ALLOW_CHROME_EXTENSIONS: ${CORS_ALLOW_CHROME_EXTENSIONS:-false}
+      CORS_EXTENSION_ORIGINS: ${CORS_EXTENSION_ORIGINS:-}
+
+      # Redis (rate limit + cache)
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
+
+      # Rate limiting
+      LOGIN_RATE_LIMIT_PER_MINUTE: ${LOGIN_RATE_LIMIT_PER_MINUTE:-10}
+
+      # Client IP hardening. Only these proxies may set X-Forwarded-For/X-Real-IP.
+      # Defaults to loopback + RFC1918 (host Nginx / Docker bridge).
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      # Set to "cloudflare" only if the origin is reachable exclusively through
+      # Cloudflare (otherwise CF-Connecting-IP could be spoofed).
+      TRUSTED_PLATFORM: ${TRUSTED_PLATFORM:-}
+
+      # Public cache TTLs (seconds)
+      CACHE_TTL_CATEGORIES_SECONDS: ${CACHE_TTL_CATEGORIES_SECONDS:-300}
+      CACHE_TTL_HOMEPAGE_SECONDS: ${CACHE_TTL_HOMEPAGE_SECONDS:-120}
+      CACHE_TTL_PRODUCTS_SECONDS: ${CACHE_TTL_PRODUCTS_SECONDS:-60}
+
+      # Product search strategy: like (default, substring) | fulltext (needs the
+      # FULLTEXT index from backend/migrations/optional/20260910_add_product_search_fulltext.sql)
+      PRODUCT_SEARCH_MODE: ${PRODUCT_SEARCH_MODE:-like}
+
+      # The startup legacy brand/domain sanitizer scans every product text column
+      # (~120 full table scans). Set true on large catalogues that are already clean.
+      DISABLE_LEGACY_BRAND_SANITIZE: ${DISABLE_LEGACY_BRAND_SANITIZE:-false}
+
+      # Admin AI assistant tool calling. On by default: the assistant inspects
+      # the catalogue with read-only tools instead of a pre-guessed context
+      # blob. A provider that rejects the tools field is downgraded automatically;
+      # set false to always use the single-shot request.
+      AI_AGENT_TOOLS: ${AI_AGENT_TOOLS:-true}
+
+      # Allow AI provider URLs to resolve to private/reserved addresses (self
+      # hosted models behind a public domain, or a host whose DNS answers with a
+      # fake-IP range such as 198.18.0.0/15). Off by default: the outbound guard
+      # is a deliberate protection, so relaxing it must be explicit.
+      AI_PROVIDER_ALLOW_PRIVATE_ADDRESSES: ${AI_PROVIDER_ALLOW_PRIVATE_ADDRESSES:-false}
+
+      # Minimum confidence for an AI classification to be published. Lower
+      # scores become review-queue candidates instead of being discarded.
+      # Valid range (0,1]; an invalid value falls back to 0.9.
+      AI_CLASSIFICATION_MIN_CONFIDENCE: ${AI_CLASSIFICATION_MIN_CONFIDENCE:-0.9}
+
+      # API error detail: keep false in production.
+      API_VERBOSE_ERRORS: ${API_VERBOSE_ERRORS:-false}
+      # Auth cookie Secure flag (enable when the site is served over HTTPS).
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      JWT_EXPIRES_HOURS: ${JWT_EXPIRES_HOURS:-24}
+      CUSTOMER_JWT_EXPIRES_HOURS: ${CUSTOMER_JWT_EXPIRES_HOURS:-168}
+
+      # 是否自动迁移（生产环境建议配合备份谨慎开启）
+      DB_AUTO_MIGRATE: ${DB_AUTO_MIGRATE:-true}
+
+      # 默认管理员（生产环境建议首次初始化后关闭 SEED_DEFAULT_ADMIN）
+      SEED_DEFAULT_ADMIN: ${SEED_DEFAULT_ADMIN:-false}
+      DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}
+      DEFAULT_ADMIN_EMAIL: ${DEFAULT_ADMIN_EMAIL:-admin@kavten.com}
+      DEFAULT_ADMIN_FULLNAME: ${DEFAULT_ADMIN_FULLNAME:-System Administrator}
+      DEFAULT_ADMIN_ROLE: ${DEFAULT_ADMIN_ROLE:-admin}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-}
+      RESET_DEFAULT_ADMIN_PASSWORD: ${RESET_DEFAULT_ADMIN_PASSWORD:-false}
+
+      # Used to encrypt sensitive admin settings (e.g. Cloudflare Global API Key)
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-}
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - ./backend/uploads:/app/uploads
+    # Expose for host Nginx reverse proxy (bind to localhost by default)
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  backend_seo_optimize:
+    profiles: ["manual"]
+    build:
+      context: ./backend
+      args:
+        BASE_REGISTRY: ${BASE_REGISTRY:-docker.io}
+    environment:
+      GO_ENV: production
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${MYSQL_USER:-kavten}
+      DB_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}
+      DB_NAME: ${MYSQL_DATABASE:-kavten_sales}
+      DB_AUTO_MIGRATE: "true"
+      SEO_OPTIMIZER_BRAND: ${SEO_OPTIMIZER_BRAND:-FANUC}
+      SEO_OPTIMIZER_BATCH_SIZE: ${SEO_OPTIMIZER_BATCH_SIZE:-500}
+      SEO_OPTIMIZER_STATUS: ${SEO_OPTIMIZER_STATUS:-active}
+      SEO_OPTIMIZER_LIMIT: ${SEO_OPTIMIZER_LIMIT:-}
+      SEO_OPTIMIZER_SEARCH: ${SEO_OPTIMIZER_SEARCH:-}
+      SEO_OPTIMIZER_CATEGORY_ID: ${SEO_OPTIMIZER_CATEGORY_ID:-}
+      SEO_OPTIMIZER_FORCE: ${SEO_OPTIMIZER_FORCE:-0}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command:
+      - sh
+      - -lc
+      - >
+        set -eu;
+        CMD="/app/bulk-seo-optimize -brand \"$${SEO_OPTIMIZER_BRAND}\" -batch-size \"$${SEO_OPTIMIZER_BATCH_SIZE}\" -status \"$${SEO_OPTIMIZER_STATUS}\"";
+        if [ -n "$${SEO_OPTIMIZER_LIMIT}" ]; then CMD="$$CMD -limit \"$${SEO_OPTIMIZER_LIMIT}\""; fi;
+        if [ -n "$${SEO_OPTIMIZER_SEARCH}" ]; then CMD="$$CMD -search \"$${SEO_OPTIMIZER_SEARCH}\""; fi;
+        if [ -n "$${SEO_OPTIMIZER_CATEGORY_ID}" ]; then CMD="$$CMD -category-id \"$${SEO_OPTIMIZER_CATEGORY_ID}\""; fi;
+        if [ "$${SEO_OPTIMIZER_FORCE}" = "1" ] || [ "$${SEO_OPTIMIZER_FORCE}" = "true" ]; then CMD="$$CMD -force"; fi;
+        eval "$$CMD";
+    restart: "no"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        BASE_REGISTRY: ${BASE_REGISTRY:-docker.io}
+        # SSR 端访问后端用 service 名；浏览器端走 /api/v1 相对路径（由“宿主机 Nginx”反代）
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://backend:8080}
+        # 对外站点 URL。生产默认应指向真实域名，避免 canonical / og:url 退回开发地址。
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://kavten.com}
+        NEXT_PUBLIC_SITE_NAME: ${NEXT_PUBLIC_SITE_NAME:-Kavten}
+        NEXT_PUBLIC_SITE_DESCRIPTION: ${NEXT_PUBLIC_SITE_DESCRIPTION:-Industrial automation components and CNC spare parts}
+        NEXT_PUBLIC_PAYPAL_CLIENT_ID: ${NEXT_PUBLIC_PAYPAL_CLIENT_ID:-}
+        NEXT_PUBLIC_PAYPAL_ENVIRONMENT: ${NEXT_PUBLIC_PAYPAL_ENVIRONMENT:-sandbox}
+    container_name: kavten_frontend
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      SITE_URL: ${SITE_URL:-https://kavten.com}
+      # Also pass these at runtime so dynamic routes (robots/sitemaps/SSR) can read them without rebuild.
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://backend:8080}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://kavten.com}
+      NEXT_PUBLIC_SITE_NAME: ${NEXT_PUBLIC_SITE_NAME:-Kavten}
+      NEXT_PUBLIC_SITE_DESCRIPTION: ${NEXT_PUBLIC_SITE_DESCRIPTION:-Industrial automation components and CNC spare parts}
+      NEXT_PUBLIC_PAYPAL_CLIENT_ID: ${NEXT_PUBLIC_PAYPAL_CLIENT_ID:-}
+      NEXT_PUBLIC_PAYPAL_ENVIRONMENT: ${NEXT_PUBLIC_PAYPAL_ENVIRONMENT:-sandbox}
+      REVALIDATE_SECRET: ${REVALIDATE_SECRET:-}
+      # ISR pages + fetch data cache are kept in a bounded in-memory LRU
+      # (frontend/cache-handler.js), never written to the container disk.
+      NEXT_CACHE_MAX_MB: ${NEXT_CACHE_MAX_MB:-256}
+      # Without a heap ceiling V8 grows lazily until the kernel OOM-kills it.
+      NODE_OPTIONS: ${FRONTEND_NODE_OPTIONS:---max-old-space-size=768}
+    # Heap (768m) + cached page buffers (256m, off-heap) + runtime overhead.
+    mem_limit: ${FRONTEND_MEM_LIMIT:-1536m}
+    # A crashing Node process must not leave multi-GB core files in the container.
+    ulimits:
+      core: 0
+    depends_on:
+      - backend
+    # Expose for host Nginx reverse proxy (bind to localhost by default)
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: internal Nginx (disabled by default). Prefer running Nginx on the host for TLS/certs.
+  nginx:
+    profiles: ["internal-nginx"]
+    image: nginx:1.27-alpine
+    container_name: kavten_nginx
+    ports:
+      - "${NGINX_PORT:-3006}:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  mysql_data:
+  redis_data:

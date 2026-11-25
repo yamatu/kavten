@@ -1,0 +1,159 @@
+import type { PublicLocale } from './config';
+import { detailedPublicMessages } from './detailedMessages';
+import { storeMessages } from './store-messages';
+import {
+  enMessages as en,
+  formatPublicMessage,
+  type PublicMessageKey as MessageKey,
+  type PublicMessageVariables,
+} from './messages-en';
+
+export type { PublicMessageVariables };
+
+type Messages = Partial<Record<MessageKey, string>>;
+
+const translations: Record<Exclude<PublicLocale, 'en'>, Messages> = {
+  zh: {
+    'header.searchCategories': '搜索分类', 'header.noCategories': '没有匹配的分类',
+    'footer.popularBrands': '热门品牌', 'footer.weAccept': '支持付款方式',
+    'products.show': '显示', 'products.perPage': '每页产品数量',
+    'home.hero.title': 'Kavten 工业自动化零部件',
+    'home.hero.subtitle': '数控与机器人备件，完成检测后快速发货',
+    'home.hero.description': '从充足库存中采购多品牌工业自动化零部件，享受检测、技术支持、维修评估和全球运输服务。',
+    'home.hero.primary': '浏览产品', 'home.hero.secondary': '获取报价',
+    'language.label': '语言与地区', 'nav.home': '首页', 'nav.products': '产品', 'nav.categories': '分类', 'nav.news': '新闻', 'nav.blog': '博客', 'nav.about': '关于我们', 'nav.contact': '联系我们', 'nav.repair': '维修申请',
+    'header.supply': '工业自动化零部件供应 | Kavten 始于 2007 年', 'header.search': '搜索', 'header.searchProducts': '搜索产品...', 'header.viewResults': '查看全部结果', 'header.noProducts': '未找到产品', 'header.login': '登录', 'header.register': '注册', 'header.trackOrder': '订单查询', 'header.myAccount': '我的账户', 'header.myOrders': '我的订单', 'header.supportTickets': '支持工单', 'header.logout': '退出登录', 'header.productCategories': '产品分类',
+    'footer.products': '产品', 'footer.services': '服务', 'footer.company': '公司', 'footer.support': '支持', 'footer.partners': '合作伙伴', 'footer.stayUpdated': '获取最新资讯', 'footer.newsletter': '订阅自动化零部件与行业动态。', 'footer.emailPlaceholder': '输入邮箱', 'footer.subscribe': '订阅', 'footer.description': 'Kavten 自 2007 年起为工业维护团队供应 20 多个自动化品牌的现行、旧款及停产零部件，并提供型号核对、维修评估和全球配送。', 'footer.address': '中国江苏省昆山市', 'footer.hours': '周一至周五：8:00 - 18:00', 'footer.copyright': '版权所有 2024 Kavten。保留所有权利。', 'footer.privacy': '隐私政策', 'footer.terms': '服务条款', 'footer.sitemap': '站点地图', 'footer.allProducts': '全部产品', 'footer.productCategories': '产品分类',
+    'home.hero.kicker': '工业自动化供应', 'home.hero.previous': '上一张', 'home.hero.next': '下一张', 'home.hero.goTo': '转到第 {number} 张', 'home.hero.scroll': '向下滚动', 'home.featured.title': '精选工业自动化零部件', 'home.featured.description': '浏览经过检测、适用于可靠工业维护的数控与自动化零部件。', 'home.featured.viewAll': '查看全部产品', 'home.featured.save': '节省 {percent}%', 'common.inStock': '库存：{count}', 'common.outOfStock': '暂无库存', 'common.addToCart': '加入购物车', 'common.home': '首页', 'common.by': '作者：{name}', 'common.views': '{count} 次浏览', 'common.readTime': '阅读约 {count} 分钟', 'common.backTo': '返回{section}', 'common.cncParts': '数控零部件', 'common.learnMore': '了解更多', 'common.contactUs': '联系我们', 'home.stats.title': 'Kavten 多品牌自动化备件供应商', 'home.stats.description': '提供多品牌工业自动化零部件、充足库存、检测维修支持及全球配送。', 'home.stats.ctaTitle': '需要专业的工业零部件服务？', 'home.stats.ctaDescription': '联系我们的销售与技术团队，获取采购、检测、维修和国际运输支持。', 'home.stats.contact': '联系专家', 'home.stats.browse': '浏览产品', 'home.workshop.title': '3,500 平方米现代化车间', 'home.workshop.description': '规范库存、检测工位、维修能力及出口包装，为数控备件供应提供可靠保障。', 'home.services.title': '完善的数控零部件服务', 'home.services.description': '覆盖自动化零部件供应、维修、技术支持与全球运输的一站式服务。',
+    'products.title': '工业自动化零部件', 'products.description': '浏览支持全球配送的数控与工业自动化零部件。', 'products.search': '搜索产品', 'products.searchPlaceholder': '按名称、SKU 或描述搜索...', 'products.allCategories': '全部分类', 'products.results': '共 {count} 个产品', 'products.noResults': '未找到产品', 'product.notFound': '未找到产品', 'product.notFoundDescription': '您查找的产品不存在。', 'product.back': '返回产品列表', 'product.information': '产品信息', 'product.alternate': '备用型号', 'product.whatsApp': 'WhatsApp 咨询', 'product.buyNow': '立即购买', 'product.payWithPayPal': '使用 PayPal 支付', 'product.brand': '品牌', 'product.partNumber': '零件号', 'product.warranty': '质保期', 'product.leadTime': '交货期', 'product.inStock': '有库存', 'product.readyToShip': '可立即发货', 'product.availableToOrder': '可订购', 'product.worldwideShipping': '全球配送', 'product.qualityTested': '已通过质量检测', 'product.aboutPart': '关于该零件', 'product.quickAnswer': '快速说明', 'product.description': '产品描述', 'product.specifications': '技术规格', 'product.details': '零件详情', 'product.category': '分类', 'product.condition': '成色', 'product.origin': '原产国', 'product.certifications': '认证', 'product.compatibility': '兼容性信息', 'product.installation': '安装指南', 'product.maintenance': '维护建议', 'product.downloads': '下载与参考资料', 'product.faq': '常见问题', 'product.reviews': '客户评价', 'product.explore': '浏览更多选项', 'product.browseAll': '浏览全部产品', 'product.moreCategory': '更多{category}', 'product.moreBrand': '更多 {brand} 零件', 'product.related': '相关产品', 'categories.kicker': '分类供应', 'categories.home': '首页', 'news.title': '公司新闻', 'news.blogTitle': '工业自动化博客', 'news.description': 'Kavten 公司动态、产品公告与工业自动化资讯。', 'news.blogDescription': '面向数控与工业自动化从业者的实用指南、故障排查与采购知识。', 'news.kicker': '公司动态', 'news.blogKicker': '技术资料库', 'news.search': '搜索文章...', 'news.noArticles': '未找到文章', 'news.checkBack': '请稍后查看最新内容。', 'news.featured': '推荐文章', 'news.latest': '最新文章', 'news.views': '{count} 次浏览', 'news.results': '共 {count} 条关于“{query}”的结果', 'news.clearSearch': '清除搜索', 'about.title': '关于 Kavten', 'about.kicker': '始于 2007 年的工业零部件经验', 'contact.title': '联系我们', 'contact.kicker': '联系 Kavten', 'contact.description': '联系专业团队，解决您的自动化零部件需求。',
+    'review.basedOn': '基于 {count} 条已验证评价', 'review.basedOnOne': '基于 1 条已验证评价', 'review.none': '暂无评价。购买过该零件的客户可以分享使用体验。', 'review.write': '撰写评价', 'review.loginPrompt': '购买过该零件？登录后即可评价，仅限已购买客户。', 'review.signIn': '登录后评价', 'review.notPurchased': '仅购买过该产品的客户可以发表评价。', 'review.submitted': '感谢您的评价！审核通过后将会展示。', 'review.pendingExisting': '您的评价正在等待审核。', 'review.approvedExisting': '感谢，您的评价已发布。', 'review.rejectedExisting': '您之前的评价未通过审核，可以修改后重新提交。', 'review.rating': '您的评分', 'review.name': '显示名称', 'review.title': '标题（可选）', 'review.content': '评价内容', 'review.contentPlaceholder': '该零件使用情况如何？适配性、成色、物流……', 'review.submit': '提交评价', 'review.submitting': '提交中...', 'review.selectRating': '请选择评分', 'review.contentTooShort': '评价内容至少 10 个字符', 'review.captchaRequired': '请先完成人机验证', 'review.captchaLoadFailed': '人机验证加载失败，请刷新页面重试。', 'review.failed': '评价提交失败，请重试。', 'review.verifiedBuyer': '已购买', 'review.stars': '{count} 星（满分 5 星）', 'review.showMore': '查看更多评价', 'review.moderationNote': '所有评价经人工审核后展示。', 'review.reviewsLink': '{count} 条评价', 'review.purchasedIn': '购买订单 {number}', 'review.via': '来自{source}的反馈', 'review.source.email': '邮件', 'review.source.ebay': 'eBay', 'review.source.whatsapp': 'WhatsApp', 'review.source.phone': '电话', 'review.source.offline': '线下订单', 'review.source.other': '其他渠道',
+    'header.cart': '购物车', 'header.openMenu': '打开菜单', 'header.closeMenu': '关闭菜单', 'header.primaryNavigation': '主导航', 'header.mobileNavigation': '移动端导航',
+    'common.lastUpdated': '最后更新：{date}',
+    'common.loading': '加载中...', 'common.loadError': '产品加载失败',
+    'common.tryAgain': '请稍后重试。', 'common.viewDetails': '查看详情',
+    'about.subtitle': '始于 2007 年，值得信赖的数控一站式解决方案供应商',
+    'about.profile': '公司概况', 'about.warehouse': '仓库与库存', 'about.services': '专业服务',
+    'about.experience': '十五年以上专业经验', 'about.sales': '销售服务', 'about.testing': '检测服务',
+    'about.maintenance': '维修服务', 'about.years': '年行业经验', 'about.topSupplier': '供应自动化品牌',
+    'about.workshop': '平方米车间', 'about.employees': '员工总数', 'about.items': '库存产品', 'about.parcels': '每日包裹',
+    'contact.getInTouch': '联系方式', 'contact.address': '地址', 'contact.phone': '电话', 'contact.email': '邮箱',
+    'contact.hours': '营业时间', 'contact.facility': '公司设施', 'contact.serviceArea': '服务范围',
+    'contact.sendTitle': '发送消息', 'contact.fullName': '姓名', 'contact.emailAddress': '邮箱地址',
+    'contact.company': '公司名称', 'contact.phoneNumber': '电话号码', 'contact.inquiryType': '咨询类型',
+    'contact.subject': '主题', 'contact.message': '消息内容', 'contact.send': '发送消息', 'contact.sending': '正在发送...',
+    'contact.general': '一般咨询', 'contact.parts': '零件需求', 'contact.repair': '维修服务',
+    'contact.support': '技术支持', 'contact.quote': '申请报价',
+    'contact.success': '感谢您的留言！我们会尽快回复。', 'contact.error': '消息发送失败，请检查网络连接。',
+    'faq.title': '常见问题', 'faq.kicker': '帮助中心', 'faq.description': '查看关于多品牌工业自动化零部件、运输、质保、维修评估和技术支持的常见问题。',
+    'faq.more': '还有其他问题？', 'faq.moreDescription': '专业团队可为您解答数控、PLC、HMI、驱动、伺服及其他工业自动化零部件问题。',
+    'faq.email': '邮件咨询', 'docs.title': '文档中心', 'docs.comingSoon': '技术文档即将上线。',
+    'footer.since': '始于 2007 年',
+    'header.hub': '数控零部件中心', 'header.automationSupply': '工业自动化供应',
+    'products.searching': '正在搜索“{query}”...', 'products.showing': '显示 {shown} 个，共 {total} 个产品',
+    'products.filtered': '已筛选', 'products.forQuery': '关键词“{query}”',
+    'products.gridView': '网格视图', 'products.listView': '列表视图', 'products.contactForQuote': '联系询价',
+    'product.contactForQuote': '联系询价', 'product.quotePriceHint': '请通过 WhatsApp 或邮箱获取当前价格和交期。', 'product.emailForQuote': '邮件询价',
+    'products.sortNameAsc': '名称（A-Z）', 'products.sortNameDesc': '名称（Z-A）',
+    'products.sortPriceAsc': '价格：从低到高', 'products.sortPriceDesc': '价格：从高到低',
+    'products.sortNewest': '最新上架', 'products.sortStock': '库存：从高到低',
+    'products.sortFeatured': '精选优先', 'products.clearFilters': '清除全部筛选',
+    'products.pageOf': '第 {page} 页，共 {total} 页',
+    'filters.title': '筛选条件', 'filters.clearAll': '全部清除', 'filters.priceRange': '价格范围',
+    'filters.minPrice': '最低价格', 'filters.maxPrice': '最高价格', 'filters.priceHint': '输入价格范围筛选产品',
+    'filters.active': '当前筛选：', 'filters.searchValue': '搜索：“{query}”',
+    'filters.categoryValue': '分类：{category}', 'filters.unknown': '未知', 'filters.noMax': '不限上限',
+    'about.profileDescription': '自 2007 年以来，我们持续供应数控与工业自动化零部件，将产品经验、可靠采购和快速国际服务融为一体。',
+    'about.warehouseDescription': '3,500 平方米设施支持规范库存、检测维修、出口包装及高效全球发货。',
+    'about.servicesDescription': '专业团队为客户提供选型、功能检测、维修及售后全过程支持。',
+    'about.salesDescription': '经验丰富的销售人员根据实际应用确认兼容部件并提供可行的采购方案。',
+    'about.testingDescription': '通过规范检测和功能测试，在发货前确认部件质量与工作状态。',
+    'about.maintenanceDescription': '专业技术人员提供维护与维修支持，保障自动化系统可靠运行。',
+    'about.experienceDescription': '十五年以上行业经验使我们能够整合采购、检测、出口单证与国际运输，为客户提供一站式服务。',
+    'about.trustedPartner': '值得信赖的合作伙伴', 'about.trustedDescription': '面向全球提供可靠的工业解决方案',
+    'contact.fastResponse': '快速响应', 'contact.fastResponseDescription': '团队会及时回复产品、报价及技术咨询。',
+    'contact.largeInventory': '充足库存', 'contact.largeInventoryDescription': '广泛的数控和自动化零部件库存可缩短采购与交付时间。',
+    'contact.globalShipping': '全球运输', 'contact.globalShippingDescription': '为全球客户提供出口包装及国际配送服务。',
+    'contact.loading': '加载中...',
+    'contact.whyChoose': '为什么选择 Kavten？',
+    'order.kicker': '物流状态', 'order.trackTitle': '查询订单',
+    'order.trackDescription': '输入确认邮件中的订单号，查看当前处理、运输及送达状态。',
+    'order.enterNumber': '请输入订单号', 'order.trackAction': '查询订单',
+    'order.numberHint': '订单号可在购买后发送给您的确认邮件中找到。',
+    'order.loadingDetails': '正在加载订单详情...', 'order.notFound': '未找到订单',
+    'order.notFoundDescription': '未找到您输入的订单号。', 'order.loadError': '订单详情加载失败',
+    'order.backHome': '返回首页', 'order.placedOn': '下单日期：{date}', 'order.progress': '订单进度',
+    'order.currentStatus': '当前状态', 'order.details': '订单详情', 'order.number': '订单号',
+    'order.status': '订单状态', 'order.paymentStatus': '付款状态', 'order.totalAmount': '订单总额',
+    'order.paymentMethod': '付款方式', 'order.tracking': '物流追踪', 'order.carrier': '承运商',
+    'order.customerInfo': '客户信息', 'order.name': '姓名', 'order.email': '邮箱', 'order.phone': '电话',
+    'order.shippingAddress': '收货地址', 'order.items': '订单商品', 'order.product': '产品',
+    'order.quantity': '数量', 'order.each': '每件', 'order.notes': '订单备注',
+    'status.pending': '订单已提交', 'status.confirmed': '已确认', 'status.processing': '处理中',
+    'status.shipped': '已发货', 'status.delivered': '已送达', 'status.cancelled': '已取消',
+    'payment.pending': '待付款', 'payment.paid': '已付款', 'payment.failed': '付款失败', 'payment.refund_pending': '退款处理中', 'payment.partially_refunded': '部分退款', 'payment.refunded': '已退款',
+    'product.searchCountry': '搜索或选择国家...', 'product.noCountries': '未找到国家', 'product.free': '免费',
+  },
+  es: {
+    'language.label': 'Idioma y región', 'nav.home': 'Inicio', 'nav.products': 'Productos', 'nav.categories': 'Categorías', 'nav.news': 'Noticias', 'nav.blog': 'Blog', 'nav.about': 'Nosotros', 'nav.contact': 'Contacto', 'header.search': 'Buscar', 'header.searchProducts': 'Buscar productos...', 'header.login': 'Iniciar sesión', 'header.register': 'Registrarse', 'header.trackOrder': 'Rastrear pedido', 'footer.products': 'Productos', 'footer.services': 'Servicios', 'footer.company': 'Empresa', 'footer.support': 'Soporte', 'footer.partners': 'Socios', 'footer.stayUpdated': 'Mantente informado', 'footer.subscribe': 'Suscribirse', 'home.hero.kicker': 'Suministro de automatización industrial', 'home.featured.title': 'Componentes destacados de automatización', 'home.featured.viewAll': 'Ver todos los productos', 'common.inStock': 'En stock: {count}', 'common.outOfStock': 'Agotado', 'common.addToCart': 'Añadir al carrito', 'home.stats.title': 'Kavten: proveedor de automatización multimarca', 'home.stats.contact': 'Contactar expertos', 'home.stats.browse': 'Ver productos', 'home.workshop.title': 'Taller moderno de 3.500 m²', 'home.services.title': 'Servicios integrales de repuestos CNC', 'products.title': 'Componentes de automatización industrial', 'products.search': 'Buscar productos', 'products.noResults': 'No se encontraron productos', 'news.title': 'Noticias de la empresa', 'news.blogTitle': 'Blog de automatización industrial', 'news.search': 'Buscar artículos...', 'news.noArticles': 'No se encontraron artículos', 'about.title': 'Acerca de Kavten', 'contact.title': 'Contáctenos',
+    'home.hero.title': 'Repuestos de automatización industrial Kavten', 'home.hero.subtitle': 'Repuestos CNC y robóticos verificados y listos para enviar', 'home.hero.description': 'Encuentre componentes de automatización multimarca con inspección, evaluación de reparación, soporte técnico y envío mundial.', 'home.hero.primary': 'Ver productos', 'home.hero.secondary': 'Solicitar cotización', 'products.description': 'Explore repuestos CNC y de automatización industrial con entrega mundial.',
+  },
+  de: {
+    'language.label': 'Sprache und Region', 'nav.home': 'Startseite', 'nav.products': 'Produkte', 'nav.categories': 'Kategorien', 'nav.news': 'Neuigkeiten', 'nav.blog': 'Blog', 'nav.about': 'Über uns', 'nav.contact': 'Kontakt', 'header.search': 'Suchen', 'header.searchProducts': 'Produkte suchen...', 'header.login': 'Anmelden', 'header.register': 'Registrieren', 'header.trackOrder': 'Bestellung verfolgen', 'footer.products': 'Produkte', 'footer.services': 'Leistungen', 'footer.company': 'Unternehmen', 'footer.support': 'Support', 'footer.partners': 'Partner', 'footer.stayUpdated': 'Aktuell bleiben', 'footer.subscribe': 'Abonnieren', 'home.hero.kicker': 'Industrielle Automatisierungstechnik', 'home.featured.title': 'Ausgewählte Automatisierungsteile', 'home.featured.viewAll': 'Alle Produkte ansehen', 'common.inStock': 'Auf Lager: {count}', 'common.outOfStock': 'Nicht auf Lager', 'common.addToCart': 'In den Warenkorb', 'home.stats.title': 'Kavten: Anbieter für mehrere Automatisierungsmarken', 'home.stats.contact': 'Experten kontaktieren', 'home.stats.browse': 'Produkte ansehen', 'home.workshop.title': 'Moderne Werkstatt mit 3.500 m²', 'home.services.title': 'Umfassende CNC-Ersatzteilservices', 'products.title': 'Teile für industrielle Automatisierung', 'products.search': 'Produkte suchen', 'products.noResults': 'Keine Produkte gefunden', 'news.title': 'Unternehmensnachrichten', 'news.blogTitle': 'Blog zur Industrieautomatisierung', 'news.search': 'Artikel suchen...', 'news.noArticles': 'Keine Artikel gefunden', 'about.title': 'Über Kavten', 'contact.title': 'Kontakt',
+    'home.hero.title': 'Kavten Teile für Industrieautomation', 'home.hero.subtitle': 'Geprüfte CNC- und Roboterersatzteile, versandbereit', 'home.hero.description': 'Automatisierungsteile vieler Marken aus großem Lagerbestand – mit Prüfung, Reparaturbewertung, technischem Support und weltweitem Versand.', 'home.hero.primary': 'Produkte ansehen', 'home.hero.secondary': 'Angebot anfordern', 'products.description': 'CNC- und Industrieautomationsteile mit weltweiter Lieferung.',
+  },
+  fr: {
+    'language.label': 'Langue et région', 'nav.home': 'Accueil', 'nav.products': 'Produits', 'nav.categories': 'Catégories', 'nav.news': 'Actualités', 'nav.blog': 'Blog', 'nav.about': 'À propos', 'nav.contact': 'Contact', 'header.search': 'Rechercher', 'header.searchProducts': 'Rechercher des produits...', 'header.login': 'Connexion', 'header.register': "S'inscrire", 'header.trackOrder': 'Suivre la commande', 'footer.products': 'Produits', 'footer.services': 'Services', 'footer.company': 'Entreprise', 'footer.support': 'Assistance', 'footer.partners': 'Partenaires', 'footer.stayUpdated': 'Restez informé', 'footer.subscribe': "S'abonner", 'home.hero.kicker': "Fourniture d'automatisation industrielle", 'home.featured.title': "Pièces d'automatisation sélectionnées", 'home.featured.viewAll': 'Voir tous les produits', 'common.inStock': 'En stock : {count}', 'common.outOfStock': 'Rupture de stock', 'common.addToCart': 'Ajouter au panier', 'home.stats.title': "Kavten, fournisseur d'automatisation multimarque", 'home.stats.contact': 'Contacter nos experts', 'home.stats.browse': 'Voir les produits', 'home.workshop.title': 'Atelier moderne de 3 500 m²', 'home.services.title': 'Services complets de pièces CNC', 'products.title': "Pièces d'automatisation industrielle", 'products.search': 'Rechercher des produits', 'products.noResults': 'Aucun produit trouvé', 'news.title': "Actualités de l'entreprise", 'news.blogTitle': "Blog sur l'automatisation industrielle", 'news.search': 'Rechercher des articles...', 'news.noArticles': 'Aucun article trouvé', 'about.title': 'À propos de Kavten', 'contact.title': 'Nous contacter',
+    'home.hero.title': "Pièces d'automatisation industrielle Kavten", 'home.hero.subtitle': 'Pièces CNC et robotiques testées et prêtes à expédier', 'home.hero.description': "Trouvez des composants d'automatisation multimarques avec contrôle, évaluation de réparation, assistance technique et livraison mondiale.", 'home.hero.primary': 'Voir les produits', 'home.hero.secondary': 'Demander un devis', 'products.description': "Parcourez les pièces CNC et d'automatisation industrielle avec livraison mondiale.",
+  },
+  it: {
+    'language.label': 'Lingua e regione', 'nav.home': 'Home', 'nav.products': 'Prodotti', 'nav.categories': 'Categorie', 'nav.news': 'Notizie', 'nav.blog': 'Blog', 'nav.about': 'Chi siamo', 'nav.contact': 'Contatti', 'header.search': 'Cerca', 'header.searchProducts': 'Cerca prodotti...', 'header.login': 'Accedi', 'header.register': 'Registrati', 'header.trackOrder': 'Traccia ordine', 'footer.products': 'Prodotti', 'footer.services': 'Servizi', 'footer.company': 'Azienda', 'footer.support': 'Supporto', 'footer.partners': 'Partner', 'footer.stayUpdated': 'Resta aggiornato', 'footer.subscribe': 'Iscriviti', 'home.hero.kicker': 'Fornitura per automazione industriale', 'home.featured.title': 'Ricambi per automazione in evidenza', 'home.featured.viewAll': 'Vedi tutti i prodotti', 'common.inStock': 'Disponibili: {count}', 'common.outOfStock': 'Esaurito', 'common.addToCart': 'Aggiungi al carrello', 'home.stats.title': 'Kavten: fornitore di automazione multimarca', 'home.stats.contact': 'Contatta gli esperti', 'home.stats.browse': 'Sfoglia i prodotti', 'home.workshop.title': 'Officina moderna di 3.500 m²', 'home.services.title': 'Servizi completi per ricambi CNC', 'products.title': 'Componenti per automazione industriale', 'products.search': 'Cerca prodotti', 'products.noResults': 'Nessun prodotto trovato', 'news.title': 'Notizie aziendali', 'news.blogTitle': 'Blog di automazione industriale', 'news.search': 'Cerca articoli...', 'news.noArticles': 'Nessun articolo trovato', 'about.title': 'Chi è Kavten', 'contact.title': 'Contatti',
+    'home.hero.title': 'Ricambi per automazione industriale Kavten', 'home.hero.subtitle': 'Ricambi CNC e robotici collaudati e pronti per la spedizione', 'home.hero.description': 'Trova componenti di automazione multimarca con controllo, valutazione della riparazione, supporto tecnico e spedizione mondiale.', 'home.hero.primary': 'Vedi i prodotti', 'home.hero.secondary': 'Richiedi preventivo', 'products.description': 'Sfoglia ricambi CNC e per automazione industriale con consegna mondiale.',
+  },
+  pt: {
+    'language.label': 'Idioma e região', 'nav.home': 'Início', 'nav.products': 'Produtos', 'nav.categories': 'Categorias', 'nav.news': 'Notícias', 'nav.blog': 'Blog', 'nav.about': 'Sobre', 'nav.contact': 'Contato', 'header.search': 'Pesquisar', 'header.searchProducts': 'Pesquisar produtos...', 'header.login': 'Entrar', 'header.register': 'Cadastrar', 'header.trackOrder': 'Rastrear pedido', 'footer.products': 'Produtos', 'footer.services': 'Serviços', 'footer.company': 'Empresa', 'footer.support': 'Suporte', 'footer.partners': 'Parceiros', 'footer.stayUpdated': 'Receba novidades', 'footer.subscribe': 'Assinar', 'home.hero.kicker': 'Fornecimento de automação industrial', 'home.featured.title': 'Peças de automação em destaque', 'home.featured.viewAll': 'Ver todos os produtos', 'common.inStock': 'Em estoque: {count}', 'common.outOfStock': 'Sem estoque', 'common.addToCart': 'Adicionar ao carrinho', 'home.stats.title': 'Kavten: fornecedor de automação multimarcas', 'home.stats.contact': 'Falar com especialistas', 'home.stats.browse': 'Ver produtos', 'home.workshop.title': 'Oficina moderna de 3.500 m²', 'home.services.title': 'Serviços completos de peças CNC', 'products.title': 'Peças de automação industrial', 'products.search': 'Pesquisar produtos', 'products.noResults': 'Nenhum produto encontrado', 'news.title': 'Notícias da empresa', 'news.blogTitle': 'Blog de automação industrial', 'news.search': 'Pesquisar artigos...', 'news.noArticles': 'Nenhum artigo encontrado', 'about.title': 'Sobre a Kavten', 'contact.title': 'Entre em contato',
+    'home.hero.title': 'Peças de automação industrial Kavten', 'home.hero.subtitle': 'Peças CNC e robóticas testadas e prontas para envio', 'home.hero.description': 'Encontre componentes de automação multimarcas com inspeção, avaliação de reparo, suporte técnico e envio mundial.', 'home.hero.primary': 'Ver produtos', 'home.hero.secondary': 'Solicitar orçamento', 'products.description': 'Explore peças CNC e de automação industrial com entrega mundial.',
+  },
+  ja: {
+    'language.label': '言語と地域', 'nav.home': 'ホーム', 'nav.products': '製品', 'nav.categories': 'カテゴリー', 'nav.news': 'ニュース', 'nav.blog': 'ブログ', 'nav.about': '会社情報', 'nav.contact': 'お問い合わせ', 'header.search': '検索', 'header.searchProducts': '製品を検索...', 'header.login': 'ログイン', 'header.register': '登録', 'header.trackOrder': '注文追跡', 'footer.products': '製品', 'footer.services': 'サービス', 'footer.company': '会社', 'footer.support': 'サポート', 'footer.partners': 'パートナー', 'footer.stayUpdated': '最新情報', 'footer.subscribe': '購読', 'home.hero.kicker': '産業オートメーション部品供給', 'home.featured.title': '注目のオートメーション部品', 'home.featured.viewAll': 'すべての製品を見る', 'common.inStock': '在庫：{count}', 'common.outOfStock': '在庫切れ', 'common.addToCart': 'カートに追加', 'home.stats.title': 'Kavten マルチブランド自動化部品サプライヤー', 'home.stats.contact': '専門家に相談', 'home.stats.browse': '製品を見る', 'home.workshop.title': '3,500㎡の近代的な工場', 'home.services.title': 'CNC部品の総合サービス', 'products.title': '産業オートメーション部品', 'products.search': '製品を検索', 'products.noResults': '製品が見つかりません', 'news.title': '会社ニュース', 'news.blogTitle': '産業オートメーションブログ', 'news.search': '記事を検索...', 'news.noArticles': '記事が見つかりません', 'about.title': 'Kavtenについて', 'contact.title': 'お問い合わせ',
+    'home.hero.title': 'Kavten 産業オートメーション部品', 'home.hero.subtitle': '検査済みで出荷可能なCNC・ロボット予備品', 'home.hero.description': '複数ブランドの産業オートメーション部品を、検査、修理評価、技術サポート、世界配送とともに提供します。', 'home.hero.primary': '製品を見る', 'home.hero.secondary': '見積もりを依頼', 'products.description': '世界配送対応のCNC・産業オートメーション部品をご覧ください。',
+  },
+  ko: {
+    'language.label': '언어 및 지역', 'nav.home': '홈', 'nav.products': '제품', 'nav.categories': '카테고리', 'nav.news': '뉴스', 'nav.blog': '블로그', 'nav.about': '회사 소개', 'nav.contact': '문의', 'header.search': '검색', 'header.searchProducts': '제품 검색...', 'header.login': '로그인', 'header.register': '회원가입', 'header.trackOrder': '주문 조회', 'footer.products': '제품', 'footer.services': '서비스', 'footer.company': '회사', 'footer.support': '지원', 'footer.partners': '파트너', 'footer.stayUpdated': '최신 소식', 'footer.subscribe': '구독', 'home.hero.kicker': '산업 자동화 부품 공급', 'home.featured.title': '주요 자동화 부품', 'home.featured.viewAll': '전체 제품 보기', 'common.inStock': '재고: {count}', 'common.outOfStock': '품절', 'common.addToCart': '장바구니 담기', 'home.stats.title': 'Kavten 멀티브랜드 자동화 부품 공급업체', 'home.stats.contact': '전문가 문의', 'home.stats.browse': '제품 보기', 'home.workshop.title': '3,500㎡ 규모의 현대식 작업장', 'home.services.title': '종합 CNC 부품 서비스', 'products.title': '산업 자동화 부품', 'products.search': '제품 검색', 'products.noResults': '제품이 없습니다', 'news.title': '회사 뉴스', 'news.blogTitle': '산업 자동화 블로그', 'news.search': '기사 검색...', 'news.noArticles': '기사가 없습니다', 'about.title': 'Kavten 소개', 'contact.title': '문의하기',
+    'home.hero.title': 'Kavten 산업 자동화 부품', 'home.hero.subtitle': '검사를 완료하고 발송 준비된 CNC 및 로봇 예비 부품', 'home.hero.description': '다양한 브랜드의 산업 자동화 부품을 검사, 수리 평가, 기술 지원 및 전 세계 배송과 함께 제공합니다.', 'home.hero.primary': '제품 보기', 'home.hero.secondary': '견적 요청', 'products.description': '전 세계 배송이 가능한 CNC 및 산업 자동화 부품을 확인하세요.',
+  },
+  ru: {
+    'language.label': 'Язык и регион', 'nav.home': 'Главная', 'nav.products': 'Продукция', 'nav.categories': 'Категории', 'nav.news': 'Новости', 'nav.blog': 'Блог', 'nav.about': 'О компании', 'nav.contact': 'Контакты', 'header.search': 'Поиск', 'header.searchProducts': 'Поиск продукции...', 'header.login': 'Войти', 'header.register': 'Регистрация', 'header.trackOrder': 'Отследить заказ', 'footer.products': 'Продукция', 'footer.services': 'Услуги', 'footer.company': 'Компания', 'footer.support': 'Поддержка', 'footer.partners': 'Партнёры', 'footer.stayUpdated': 'Новости', 'footer.subscribe': 'Подписаться', 'home.hero.kicker': 'Поставка компонентов промышленной автоматизации', 'home.featured.title': 'Избранные компоненты автоматизации', 'home.featured.viewAll': 'Все товары', 'common.inStock': 'В наличии: {count}', 'common.outOfStock': 'Нет в наличии', 'common.addToCart': 'В корзину', 'home.stats.title': 'Kavten — поставщик компонентов автоматизации разных брендов', 'home.stats.contact': 'Связаться с экспертами', 'home.stats.browse': 'Смотреть товары', 'home.workshop.title': 'Современный цех площадью 3 500 м²', 'home.services.title': 'Комплексные услуги по запчастям CNC', 'products.title': 'Компоненты промышленной автоматизации', 'products.search': 'Поиск продукции', 'products.noResults': 'Товары не найдены', 'news.title': 'Новости компании', 'news.blogTitle': 'Блог промышленной автоматизации', 'news.search': 'Поиск статей...', 'news.noArticles': 'Статьи не найдены', 'about.title': 'О Kavten', 'contact.title': 'Связаться с нами',
+    'home.hero.title': 'Компоненты промышленной автоматизации Kavten', 'home.hero.subtitle': 'Проверенные запчасти CNC и роботов, готовые к отправке', 'home.hero.description': 'Поставляем компоненты промышленной автоматизации разных брендов с проверкой, оценкой ремонта, технической поддержкой и доставкой по всему миру.', 'home.hero.primary': 'Смотреть товары', 'home.hero.secondary': 'Запросить предложение', 'products.description': 'Компоненты CNC и промышленной автоматизации с доставкой по всему миру.',
+  },
+  ar: {
+    'language.label': 'اللغة والمنطقة', 'nav.home': 'الرئيسية', 'nav.products': 'المنتجات', 'nav.categories': 'الفئات', 'nav.news': 'الأخبار', 'nav.blog': 'المدونة', 'nav.about': 'من نحن', 'nav.contact': 'اتصل بنا', 'header.search': 'بحث', 'header.searchProducts': 'البحث عن المنتجات...', 'header.login': 'تسجيل الدخول', 'header.register': 'إنشاء حساب', 'header.trackOrder': 'تتبع الطلب', 'footer.products': 'المنتجات', 'footer.services': 'الخدمات', 'footer.company': 'الشركة', 'footer.support': 'الدعم', 'footer.partners': 'الشركاء', 'footer.stayUpdated': 'ابق على اطلاع', 'footer.subscribe': 'اشتراك', 'home.hero.kicker': 'توريد مكونات الأتمتة الصناعية', 'home.featured.title': 'مكونات أتمتة مختارة', 'home.featured.viewAll': 'عرض جميع المنتجات', 'common.inStock': 'متوفر: {count}', 'common.outOfStock': 'غير متوفر', 'common.addToCart': 'أضف إلى السلة', 'home.stats.title': 'Kavten مورد مكونات أتمتة متعددة العلامات التجارية', 'home.stats.contact': 'تواصل مع الخبراء', 'home.stats.browse': 'تصفح المنتجات', 'home.workshop.title': 'ورشة حديثة بمساحة 3500 م²', 'home.services.title': 'خدمات شاملة لقطع CNC', 'products.title': 'مكونات الأتمتة الصناعية', 'products.search': 'البحث عن المنتجات', 'products.noResults': 'لم يتم العثور على منتجات', 'news.title': 'أخبار الشركة', 'news.blogTitle': 'مدونة الأتمتة الصناعية', 'news.search': 'البحث في المقالات...', 'news.noArticles': 'لم يتم العثور على مقالات', 'about.title': 'عن Kavten', 'contact.title': 'اتصل بنا',
+    'home.hero.title': 'قطع الأتمتة الصناعية من Kavten', 'home.hero.subtitle': 'قطع غيار CNC وروبوتات مفحوصة وجاهزة للشحن', 'home.hero.description': 'نوفر مكونات أتمتة صناعية متعددة العلامات التجارية مع الفحص وتقييم الإصلاح والدعم الفني والشحن إلى جميع أنحاء العالم.', 'home.hero.primary': 'تصفح المنتجات', 'home.hero.secondary': 'طلب عرض سعر', 'products.description': 'تصفح قطع CNC والأتمة الصناعية مع التوصيل العالمي.',
+  },
+};
+
+export function translatePublicMessage(locale: PublicLocale, key: string, variables?: PublicMessageVariables): string {
+  const detailedMessage = locale !== 'en' && locale !== 'zh'
+    ? detailedPublicMessages[locale]?.[key]
+    : undefined;
+  const message = storeMessages[locale]?.[key] || (locale === 'en'
+    ? en[key as MessageKey]
+    : detailedMessage || translations[locale]?.[key as MessageKey])
+    || en[key as MessageKey]
+    || key;
+  return formatPublicMessage(message, variables);
+}
+
+// Non-English strings for one locale, in the same precedence as
+// translatePublicMessage. The client provider receives only this map (from the
+// server layout) instead of bundling every language.
+export function getPublicMessageOverrides(locale: PublicLocale): Record<string, string> | null {
+  if (locale === 'en') return storeMessages.en;
+  const detailed = locale !== 'zh' ? detailedPublicMessages[locale] : undefined;
+  const merged: Record<string, string> = {};
+  for (const source of [translations[locale], detailed, storeMessages[locale]]) {
+    for (const [key, value] of Object.entries(source || {})) {
+      if (value) merged[key] = value;
+    }
+  }
+  return merged;
+}

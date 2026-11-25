@@ -1,0 +1,13 @@
+{
+  "name": "Kavten — Model Engines, Stirling Engines & RC Kits",
+  "short_name": "Kavten",
+  "description": "Working model engines, Stirling and steam engines, RC vehicles, 3D metal kits and spare parts, shipped worldwide.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fbf6ee",
+  "theme_color": "#d7192a",
+  "icons": [
+    { "src": "/android-chrome-192x192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/android-chrome-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

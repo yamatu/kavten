@@ -1,0 +1,2433 @@
+'use client';
+
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
+import Image from 'next/image';
+import { toast } from 'react-hot-toast';
+import {
+  PlusIcon,
+  MagnifyingGlassIcon,
+  FunnelIcon,
+  EyeIcon,
+  PencilIcon,
+  TrashIcon,
+  PhotoIcon,
+  ArrowDownTrayIcon,
+  ArrowUpTrayIcon,
+  SparklesIcon,
+  ClipboardDocumentListIcon,
+  XMarkIcon
+} from '@heroicons/react/24/outline';
+import AdminLayout from '@/components/admin/AdminLayout';
+import Pagination from '@/components/common/Pagination';
+import MediaPickerModal from '@/components/admin/MediaPickerModal';
+import AIListingJobModal from '@/components/admin/AIListingJobModal';
+import ListingImportModal from '@/components/admin/ListingImportModal';
+import { ProductService, CategoryService, CommercePolicyService } from '@/services';
+import { AIAgentService, type AIAgentSEOJob } from '@/services/ai-agent.service';
+import type {
+  ProductImportResult,
+  ProductImportTaskSnapshot,
+  ProductOptimizationStatus,
+} from '@/services/product.service';
+import type { MediaAsset } from '@/services/media.service';
+import type { Product } from '@/types';
+import type { CommercePolicySetting } from '@/types';
+import {
+  FALLBACK_COMMERCE_POLICY,
+  resolveLeadTime,
+  resolveWarrantyPeriod,
+} from '@/lib/commerce-policy';
+import { queryKeys } from '@/lib/react-query';
+import { formatCurrency, getDefaultProductImageWithSku, getProductImageUrl } from '@/lib/utils';
+import { useAdminI18n } from '@/lib/admin-i18n';
+import { useAuth } from '@/hooks/useAuth';
+
+type BulkSelectionPayload = {
+  ids?: number[];
+  skus?: string[];
+  search?: string;
+  category_id?: string;
+  include_descendants?: boolean;
+  status?: 'active' | 'inactive' | 'all' | '';
+  featured?: 'true' | 'false' | '';
+  brand?: string;
+  ai_seo_status?: Exclude<AISEOFilter, 'all'>;
+  seo_noindex?: 'true' | 'false';
+  price_status?: 'priced' | 'inquiry';
+  batch_size?: number;
+  sort_by?: 'created_at' | 'updated_at' | 'price' | 'name';
+  sort_dir?: 'asc' | 'desc';
+  limit?: number;
+};
+
+type BulkProgress = {
+  status: 'idle' | 'preparing' | 'running' | 'completed' | 'failed';
+  processed: number;
+  total: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  currentBatch: number;
+  totalBatches: number;
+  message: string;
+};
+
+type AISEOFilter = 'all' | 'optimized' | 'not_optimized' | 'running' | 'failed';
+type IndexFilter = 'all' | 'indexed' | 'noindex';
+type PriceFilter = 'all' | 'priced' | 'inquiry';
+
+const INDEX_FILTERS: IndexFilter[] = ['all', 'indexed', 'noindex'];
+const PRICE_FILTERS: PriceFilter[] = ['all', 'priced', 'inquiry'];
+
+function indexFilterParam(filter: IndexFilter): 'true' | 'false' | undefined {
+  if (filter === 'noindex') return 'true';
+  if (filter === 'indexed') return 'false';
+  return undefined;
+}
+
+function priceFilterParam(filter: PriceFilter): 'priced' | 'inquiry' | undefined {
+  return filter === 'all' ? undefined : filter;
+}
+
+const SELECT_COUNT_PRESETS = [1000, 5000, 10000, 20000];
+const BULK_UPDATE_BATCH_SIZE = 1000;
+// nginx limits /api to 120 requests/minute per IP (burst 60); stay under it.
+const BULK_REQUEST_INTERVAL_MS = 600;
+const THROTTLED_STATUSES = [429, 503];
+const MAX_THROTTLE_RETRIES = 6;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+async function withThrottleRetry<T>(request: () => Promise<T>, onWait: (attempt: number, delayMs: number) => void): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await request();
+    } catch (error) {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (!status || !THROTTLED_STATUSES.includes(status) || attempt > MAX_THROTTLE_RETRIES) throw error;
+      const delayMs = Math.min(30000, 2000 * 2 ** (attempt - 1));
+      onWait(attempt, delayMs);
+      await sleep(delayMs);
+    }
+  }
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function AdminProductsContent() {
+  const { locale, t } = useAdminI18n();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [selectedBrand, setSelectedBrand] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [aiSEOFilter, setAISEOFilter] = useState<AISEOFilter>('all');
+  const [indexFilter, setIndexFilter] = useState<IndexFilter>('all');
+  const [priceFilter, setPriceFilter] = useState<PriceFilter>('all');
+  const [sortBy, setSortBy] = useState<'created_at' | 'updated_at' | 'price' | 'name'>('created_at');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20); // Dynamic page size
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [selectAllResults, setSelectAllResults] = useState<boolean>(false);
+  const [customSelectCount, setCustomSelectCount] = useState('');
+  const [selectingCustomCount, setSelectingCustomCount] = useState(false);
+  const [showAIListingModal, setShowAIListingModal] = useState(false);
+  const [showListingImport, setShowListingImport] = useState(false);
+  const [activeAISEOJob, setActiveAISEOJob] = useState<AIAgentSEOJob | null>(null);
+  const [isPausingAISEOJob, setIsPausingAISEOJob] = useState(false);
+  // Product/quote import modal
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importFormat, setImportFormat] = useState<'xlsx' | 'csv'>('xlsx');
+  const [importBrand, setImportBrand] = useState<string>('');
+  const [importOverwrite, setImportOverwrite] = useState<boolean>(false);
+  const [importCreateMissing, setImportCreateMissing] = useState<boolean>(true);
+  const [importResult, setImportResult] = useState<ProductImportResult | null>(null);
+  const [importTask, setImportTask] = useState<ProductImportTaskSnapshot | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const importPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const aiSEOPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [showCategoryImagePicker, setShowCategoryImagePicker] = useState(false);
+  const [categoryImageBrand, setCategoryImageBrand] = useState('');
+  const [categoryImageMode, setCategoryImageMode] = useState<'fill_empty' | 'replace_all'>('fill_empty');
+  // Bulk commercial-fill panel: applies the admin-editable shipping/warranty
+  // promise (for example lead time "4-5 DAYS") to the current selection.
+  const [showCommerceFill, setShowCommerceFill] = useState(false);
+  const [commerceFillOnlyIfEmpty, setCommerceFillOnlyIfEmpty] = useState(true);
+  const [commerceFill, setCommerceFill] = useState({
+    lead_time: '',
+    warranty_period: '',
+    condition_type: '',
+    origin_country: '',
+    packaging_info: '',
+    certifications: '',
+    dimensions: '',
+    minimum_order_quantity: '',
+  });
+  const [bulkUpdateProgress, setBulkUpdateProgress] = useState<BulkProgress>({
+    status: 'idle',
+    processed: 0,
+    total: 0,
+    updated: 0,
+    skipped: 0,
+    failed: 0,
+    currentBatch: 0,
+    totalBatches: 0,
+    message: '',
+  });
+
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    return () => {
+      if (importPollRef.current) {
+        clearInterval(importPollRef.current);
+        importPollRef.current = null;
+      }
+      if (aiSEOPollRef.current) {
+        clearInterval(aiSEOPollRef.current);
+        aiSEOPollRef.current = null;
+      }
+    };
+  }, []);
+
+  // Scroll position management
+  const saveScrollPosition = () => {
+    const scrollY = window.scrollY;
+    sessionStorage.setItem('adminProductsScrollY', scrollY.toString());
+  };
+
+  const restoreScrollPosition = () => {
+    const savedScrollY = sessionStorage.getItem('adminProductsScrollY');
+    if (savedScrollY) {
+      // Use setTimeout to ensure DOM is rendered before scrolling
+      setTimeout(() => {
+        window.scrollTo({
+          top: parseInt(savedScrollY, 10),
+          behavior: 'auto' // Use 'auto' for immediate scroll without animation
+        });
+        // Clear the saved position after restoring
+        sessionStorage.removeItem('adminProductsScrollY');
+      }, 100);
+    }
+  };
+
+  // Save scroll position when navigating to edit page
+  const handleEditClick = () => {
+    saveScrollPosition();
+    // The actual navigation will be handled by the Link component
+  };
+
+  // Function to update URL with current state
+  const updateURL = (updates: Partial<{
+    search: string;
+    category: string;
+    brand: string;
+    status: string;
+    aiSeoStatus: AISEOFilter;
+    index: IndexFilter;
+    price: PriceFilter;
+    sortBy: 'created_at' | 'updated_at' | 'price' | 'name';
+    sortDir: 'asc' | 'desc';
+    page: number;
+    pageSize: number;
+  }>) => {
+    const params = new URLSearchParams();
+
+    const finalSearch = updates.search !== undefined ? updates.search : searchQuery;
+    const finalCategory = updates.category !== undefined ? updates.category : selectedCategory;
+    const finalBrand = updates.brand !== undefined ? updates.brand : selectedBrand;
+    const finalStatus = updates.status !== undefined ? updates.status : statusFilter;
+    const finalAISEOStatus = updates.aiSeoStatus !== undefined ? updates.aiSeoStatus : aiSEOFilter;
+    const finalIndex = updates.index !== undefined ? updates.index : indexFilter;
+    const finalPrice = updates.price !== undefined ? updates.price : priceFilter;
+    const finalSortBy = updates.sortBy !== undefined ? updates.sortBy : sortBy;
+    const finalSortDir = updates.sortDir !== undefined ? updates.sortDir : sortDir;
+    const finalPage = updates.page !== undefined ? updates.page : currentPage;
+    const finalPageSize = updates.pageSize !== undefined ? updates.pageSize : pageSize;
+
+    if (finalSearch) params.set('search', finalSearch);
+    if (finalCategory) params.set('category', finalCategory);
+    if (finalBrand) params.set('brand', finalBrand);
+    if (finalStatus && finalStatus !== 'all') params.set('status', finalStatus);
+    if (finalAISEOStatus !== 'all') params.set('aiSeoStatus', finalAISEOStatus);
+    if (finalIndex !== 'all') params.set('index', finalIndex);
+    if (finalPrice !== 'all') params.set('price', finalPrice);
+    if (finalSortBy !== 'created_at') params.set('sortBy', finalSortBy);
+    if (finalSortDir !== 'desc') params.set('sortDir', finalSortDir);
+    if (finalPage && finalPage > 1) params.set('page', String(finalPage));
+    if (finalPageSize !== 20) params.set('pageSize', String(finalPageSize));
+
+    const qs = params.toString();
+    const newUrl = `/admin/products${qs ? `?${qs}` : ''}`;
+
+    // Use replace to avoid adding to browser history for every filter change
+    router.replace(newUrl, { scroll: false });
+  };
+
+  // Build a return URL preserving current list position and filters
+  const buildListUrl = () => {
+    const params = new URLSearchParams();
+    if (searchQuery) params.set('search', searchQuery);
+    if (selectedCategory) params.set('category', selectedCategory);
+    if (selectedBrand) params.set('brand', selectedBrand);
+    if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter);
+    if (aiSEOFilter !== 'all') params.set('aiSeoStatus', aiSEOFilter);
+    if (indexFilter !== 'all') params.set('index', indexFilter);
+    if (priceFilter !== 'all') params.set('price', priceFilter);
+    if (sortBy !== 'created_at') params.set('sortBy', sortBy);
+    if (sortDir !== 'desc') params.set('sortDir', sortDir);
+    if (currentPage && currentPage > 1) params.set('page', String(currentPage));
+    if (pageSize !== 20) params.set('pageSize', String(pageSize));
+    const qs = params.toString();
+    return `/admin/products${qs ? `?${qs}` : ''}`;
+  };
+
+  // Initialize state from URL query (so returning from edit preserves position)
+  useEffect(() => {
+    if (!searchParams) return;
+    const s = searchParams.get('search') || '';
+    const c = searchParams.get('category') || '';
+    const b = searchParams.get('brand') || '';
+    const st = (searchParams.get('status') as 'all' | 'active' | 'inactive' | 'featured') || 'all';
+    const seo = (searchParams.get('aiSeoStatus') as AISEOFilter) || 'all';
+    const idx = (searchParams.get('index') as IndexFilter) || 'all';
+    const pr = (searchParams.get('price') as PriceFilter) || 'all';
+    const sb = (searchParams.get('sortBy') as 'created_at' | 'updated_at' | 'price' | 'name') || 'created_at';
+    const sd = (searchParams.get('sortDir') as 'asc' | 'desc') || 'desc';
+    const p = parseInt(searchParams.get('page') || '1', 10);
+    const ps = parseInt(searchParams.get('pageSize') || '20', 10);
+
+    setSearchQuery(s);
+    setSelectedCategory(c);
+    setSelectedBrand(b);
+    setStatusFilter(st);
+    setAISEOFilter(['all', 'optimized', 'not_optimized', 'running', 'failed'].includes(seo) ? seo : 'all');
+    setIndexFilter(INDEX_FILTERS.includes(idx) ? idx : 'all');
+    setPriceFilter(PRICE_FILTERS.includes(pr) ? pr : 'all');
+    setSortBy(['created_at', 'updated_at', 'price', 'name'].includes(sb) ? sb : 'created_at');
+    setSortDir(sd === 'asc' ? 'asc' : 'desc');
+    setCurrentPage(Number.isFinite(p) && p > 0 ? p : 1);
+    setPageSize([20, 50, 100, 200, 500].includes(ps) ? ps : 20);
+  }, [searchParams]);
+
+  // Fetch products from API with pagination
+  const { data: productsData, isLoading, error } = useQuery({
+    queryKey: queryKeys.products.list({
+      search: searchQuery,
+      category: selectedCategory,
+      brand: selectedBrand,
+      status: statusFilter,
+      aiSEOStatus: aiSEOFilter,
+      index: indexFilter,
+      price: priceFilter,
+      sortBy,
+      sortDir,
+      page: currentPage,
+      pageSize
+    }),
+    queryFn: () => ProductService.getAdminProducts({
+      search: searchQuery,
+      category_id: selectedCategory || undefined,
+      include_descendants: selectedCategory ? 'true' : undefined,
+      brand: selectedBrand || undefined,
+      is_active: statusFilter === 'active' ? 'true' : statusFilter === 'inactive' ? 'false' : undefined,
+      is_featured: statusFilter === 'featured' ? 'true' : undefined,
+      ai_seo_status: aiSEOFilter === 'all' ? undefined : aiSEOFilter,
+      seo_noindex: indexFilterParam(indexFilter),
+      price_status: priceFilterParam(priceFilter),
+      sort_by: sortBy,
+      sort_dir: sortDir,
+      page: currentPage,
+      page_size: pageSize
+    }),
+  });
+
+  const { data: brandOptions = [] } = useQuery({
+    queryKey: ['admin', 'products', 'brand-options'],
+    queryFn: () => ProductService.listProductImageAutofillBrands(),
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const products = productsData?.data || []; // Use empty array if no data
+  const totalPages = productsData?.total_pages || 1;
+  const totalProducts = productsData?.total || 0;
+  // Products are already filtered and paginated by the admin API.
+  const filteredProducts = products;
+
+  // Restore scroll position after data is loaded and page is rendered
+  useEffect(() => {
+    if (!isLoading && productsData) {
+      restoreScrollPosition();
+    }
+  }, [isLoading, productsData]);
+
+  // Fetch categories for filter dropdown (admin sees full list)
+  const { data: categoriesData = [] } = useQuery({
+    queryKey: queryKeys.categories.lists(),
+    queryFn: () => CategoryService.getAdminCategories(),
+  });
+
+  const { data: optimizationStatus } = useQuery<ProductOptimizationStatus>({
+    queryKey: ['admin', 'products', 'optimization-status'],
+    queryFn: () => ProductService.getOptimizationStatus(),
+    staleTime: 30_000,
+  });
+
+  // Which model-derivable fields are still missing, worst first. Labels are kept
+  // here (not in the backend) so the report stays localised.
+  const coverageLabels: Record<string, { zh: string; en: string }> = {
+    name: { zh: '商品名称', en: 'Name' },
+    short_description: { zh: '简短描述', en: 'Short description' },
+    description: { zh: '详细描述', en: 'Description' },
+    meta_title: { zh: 'SEO 标题', en: 'Meta title' },
+    meta_description: { zh: 'SEO 描述', en: 'Meta description' },
+    meta_keywords: { zh: 'SEO 关键词', en: 'Meta keywords' },
+    compatibility_info: { zh: '兼容性说明', en: 'Compatibility' },
+    installation_guide: { zh: '安装指南', en: 'Installation guide' },
+    maintenance_tips: { zh: '维护建议', en: 'Maintenance tips' },
+    technical_specs: { zh: '技术参数表', en: 'Technical specs' },
+    warranty_period: { zh: '质保', en: 'Warranty' },
+    lead_time: { zh: '交期', en: 'Lead time' },
+    manufacturer: { zh: '制造商', en: 'Manufacturer' },
+    origin_country: { zh: '产地', en: 'Origin country' },
+  };
+  const coverageRows = Object.entries(optimizationStatus?.field_coverage ?? {})
+    .filter(([, count]) => count > 0)
+    .map(([key, count]) => ({
+      key,
+      count,
+      zh: coverageLabels[key]?.zh ?? key,
+      en: coverageLabels[key]?.en ?? key,
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  // Admin-editable commercial promise; only fetched when the fill panel is open.
+  const { data: commercePolicy } = useQuery<CommercePolicySetting>({
+    queryKey: ['commerce-policy', 'settings'],
+    queryFn: () => CommercePolicyService.getSettings(),
+    enabled: showCommerceFill,
+    staleTime: 60_000,
+  });
+  const effectiveCommercePolicy = commercePolicy
+    ? { ...FALLBACK_COMMERCE_POLICY, ...commercePolicy }
+    : FALLBACK_COMMERCE_POLICY;
+
+  useEffect(() => {
+    if (!showCommerceFill) return;
+    setCommerceFill((prev) => ({
+      ...prev,
+      lead_time: prev.lead_time || resolveLeadTime(undefined, effectiveCommercePolicy),
+      warranty_period: prev.warranty_period || resolveWarrantyPeriod(undefined, effectiveCommercePolicy),
+    }));
+  }, [showCommerceFill, effectiveCommercePolicy]);
+
+  const categories = Array.isArray(categoriesData) ? categoriesData : [];
+
+  // Bulk update mutation
+  const bulkUpdateMutation = useMutation({
+    mutationFn: (payload: { ids?: number[]; skus?: string[]; is_active?: boolean; is_featured?: boolean }) =>
+      ProductService.bulkUpdateProducts(payload),
+    onSuccess: () => {
+      toast.success(t('products.toast.bulkUpdated', 'Products updated successfully'));
+      setSelectedIds([]);
+      setSelectAllResults(false);
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.lists() });
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error, t('products.toast.bulkFailed', 'Bulk update failed')));
+    },
+  });
+
+  const bulkApplyDefaultImageMutation = useMutation({
+    mutationFn: (payload: BulkSelectionPayload) => ProductService.bulkApplyDefaultImage(payload),
+    onSuccess: (data) => {
+      toast.success(
+        t(
+          'products.defaultImage.applied',
+          locale === 'zh'
+            ? `已应用默认图片：更新 ${data?.updated || 0} 个`
+            : `Default images applied: ${data?.updated || 0} updated`
+        )
+      );
+      setSelectedIds([]);
+      setSelectAllResults(false);
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.lists() });
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error, t('products.defaultImage.applyFailed', locale === 'zh' ? '应用默认图片失败' : 'Failed to apply default images')));
+    },
+  });
+
+  const bulkRemoveDefaultImageMutation = useMutation({
+    mutationFn: (payload: BulkSelectionPayload) => ProductService.bulkRemoveDefaultImage(payload),
+    onSuccess: (data) => {
+      toast.success(
+        t(
+          'products.defaultImage.removed',
+          locale === 'zh'
+            ? `已移除默认图片：更新 ${data?.updated || 0} 个`
+            : `Default images removed: ${data?.updated || 0} updated`
+        )
+      );
+      setSelectedIds([]);
+      setSelectAllResults(false);
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.lists() });
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error, t('products.defaultImage.removeFailed', locale === 'zh' ? '移除默认图片失败' : 'Failed to remove default images')));
+    },
+  });
+
+  const bulkClearProductImagesMutation = useMutation({
+    mutationFn: () => ProductService.bulkClearProductImages({ batch_size: 500, status: 'all' }),
+    onSuccess: (data) => {
+      toast.success(
+        t(
+          'products.images.clearedAll',
+          locale === 'zh'
+            ? `已清空产品图片：更新 ${data?.updated || 0} 个产品，移除 ${data?.removed || 0} 条图片路径`
+            : `Product images cleared: ${data?.updated || 0} products updated, ${data?.removed || 0} image paths removed`
+        )
+      );
+      setSelectedIds([]);
+      setSelectAllResults(false);
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.lists() });
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error, t('products.images.clearFailed', locale === 'zh' ? '清空产品图片失败' : 'Failed to clear product images')));
+    },
+  });
+
+  const bulkCategoryImageMutation = useMutation({
+    mutationFn: (payload: {
+      ids?: number[];
+      skus?: string[];
+      search?: string;
+      category_id?: string;
+      status?: 'active' | 'inactive' | 'all' | '';
+      featured?: 'true' | 'false' | '';
+      brand?: string;
+      batch_size?: number;
+      media_asset_id: number;
+      apply_mode?: 'fill_empty' | 'replace_all';
+    }) => ProductService.bulkApplyCategoryImage(payload),
+    onSuccess: (data) => {
+      toast.success(
+        t(
+          'products.bulk.categoryImageApplied',
+          locale === 'zh'
+            ? `批量替换产品图完成：更新 ${data.updated}，跳过 ${data.skipped}`
+            : `Category image update completed: ${data.updated} updated, ${data.skipped} skipped`
+        )
+      );
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.lists() });
+      setShowCategoryImagePicker(false);
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error, t('products.bulk.categoryImageFailed', locale === 'zh' ? '批量替换产品图失败' : 'Failed to apply category image')));
+    },
+  });
+
+  const buildSelectAllPayload = (): BulkSelectionPayload => ({
+    batch_size: 500,
+    search: searchQuery || undefined,
+    category_id: selectedCategory || undefined,
+    include_descendants: Boolean(selectedCategory),
+    brand: selectedBrand || undefined,
+    ai_seo_status: aiSEOFilter === 'all' ? undefined : aiSEOFilter,
+    seo_noindex: indexFilterParam(indexFilter),
+    price_status: priceFilterParam(priceFilter),
+    status: (statusFilter === 'all' || statusFilter === 'featured') ? 'all' : (statusFilter as 'active' | 'inactive'),
+    featured: (statusFilter === 'featured') ? 'true' : undefined,
+  });
+
+  const effectiveBulkBrand = selectedBrand || categoryImageBrand || undefined;
+
+  const buildScopedPayload = (): BulkSelectionPayload => (
+    selectAllResults
+      ? { ...buildSelectAllPayload(), brand: effectiveBulkBrand }
+      : { ids: selectedIds, brand: effectiveBulkBrand }
+  );
+
+  // Select the first N products of the current filter scope (ordered like the
+  // list), so bulk actions can target an exact count instead of page-or-all.
+  const selectFirstNResults = async (countOverride?: number) => {
+    const count = countOverride ?? Number(customSelectCount);
+    if (!Number.isSafeInteger(count) || count < 1) {
+      toast.error(locale === 'zh' ? '请输入要选择的产品数量' : 'Enter how many products to select');
+      return;
+    }
+    if (countOverride) setCustomSelectCount(String(countOverride));
+    setSelectingCustomCount(true);
+    try {
+      // The backend applies the list's sort so "first N" is exactly what the table shows first.
+      const snapshot = await ProductService.getAdminProductSelectionIds({
+        ...buildSelectAllPayload(),
+        sort_by: sortBy,
+        sort_dir: sortDir,
+        limit: count,
+      });
+      const ids = snapshot.ids;
+      if (ids.length === 0) {
+        toast.error(locale === 'zh' ? '当前筛选范围内没有产品' : 'No products match the current filters');
+        return;
+      }
+      setSelectAllResults(false);
+      setSelectedIds(ids);
+      toast.success(locale === 'zh'
+        ? `已按当前排序选择前 ${ids.length.toLocaleString()} 个产品（共 ${totalProducts.toLocaleString()} 个符合筛选）`
+        : `Selected the first ${ids.length.toLocaleString()} products in the current order (${totalProducts.toLocaleString()} match the filters)`);
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, locale === 'zh' ? '选择产品失败' : 'Failed to select products'));
+    } finally {
+      setSelectingCustomCount(false);
+    }
+  };
+
+  const bulkApplyDefaultImages = () => {
+    if (!selectAllResults && selectedIds.length === 0) { toast.error(t('products.toast.selectOne', locale === 'zh' ? '请至少选择一个产品' : 'Select at least one product')); return; }
+    const payload = selectAllResults ? buildSelectAllPayload() : { ids: selectedIds };
+    bulkApplyDefaultImageMutation.mutate(payload);
+  };
+
+  const bulkRemoveDefaultImages = () => {
+    if (!selectAllResults && selectedIds.length === 0) { toast.error(t('products.toast.selectOne', locale === 'zh' ? '请至少选择一个产品' : 'Select at least one product')); return; }
+    const payload = selectAllResults ? buildSelectAllPayload() : { ids: selectedIds };
+    bulkRemoveDefaultImageMutation.mutate(payload);
+  };
+
+  const handleCategoryImageSelected = (assets: MediaAsset[]) => {
+    const asset = assets[0];
+    if (!asset) return;
+    bulkCategoryImageMutation.mutate({
+      ...buildScopedPayload(),
+      media_asset_id: asset.id,
+      apply_mode: categoryImageMode,
+    });
+  };
+
+  // (Removed) Auto Import from Site feature
+
+  // Delete product mutation
+  const deleteProductMutation = useMutation({
+    mutationFn: (productId: number) => ProductService.deleteProduct(productId),
+    onSuccess: () => {
+      toast.success(t('products.toast.deleted', 'Product deleted successfully!'));
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.lists() });
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error, t('products.toast.deleteFailed', 'Failed to delete product')));
+    },
+  });
+
+  const handleDelete = (product: Product) => {
+    const msg = t('products.confirm.delete', 'Are you sure you want to delete \"{name}\"? This action cannot be undone.', { name: product.name });
+    if (window.confirm(msg)) {
+      deleteProductMutation.mutate(product.id);
+    }
+  };
+
+  const stopImportPolling = () => {
+    if (importPollRef.current) {
+      clearInterval(importPollRef.current);
+      importPollRef.current = null;
+    }
+  };
+
+  const handleImportTaskUpdate = (task: ProductImportTaskSnapshot) => {
+    setImportTask(task);
+    if (task.result) {
+      setImportResult(task.result);
+    }
+    if (task.status === 'completed') {
+      stopImportPolling();
+      toast.success(
+        t(
+          'products.import.completed',
+          locale === 'zh'
+            ? `导入完成：新增 ${task.created || 0}，更新 ${task.updated || 0}，失败 ${task.failed || 0}`
+            : `Import completed: ${task.created || 0} created, ${task.updated || 0} updated, ${task.failed || 0} failed`
+        )
+      );
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.lists() });
+    }
+    if (task.status === 'failed') {
+      stopImportPolling();
+      toast.error(task.message || t('products.import.failed', locale === 'zh' ? '导入失败' : 'Import failed'));
+    }
+  };
+
+  const startImportPolling = (taskId: string) => {
+    stopImportPolling();
+
+    const poll = async () => {
+      try {
+        const task = await ProductService.getImportProductsTask(taskId);
+        handleImportTaskUpdate(task);
+      } catch (error: unknown) {
+        stopImportPolling();
+        toast.error(getErrorMessage(error, t('products.import.failed', locale === 'zh' ? '导入失败' : 'Import failed')));
+      }
+    };
+
+    void poll();
+    importPollRef.current = setInterval(() => {
+      void poll();
+    }, 1500);
+  };
+
+  const importMutation = useMutation({
+    mutationFn: async () => {
+      if (!importFile) throw new Error(locale === 'zh' ? '请选择导入文件' : 'Please select an import file');
+      if (importFormat === 'csv') {
+        return ProductService.importProductQuotesCsv(importFile, (pct) => setUploadProgress(pct));
+      }
+      return ProductService.importProductsXlsx(importFile, {
+        brand: importBrand,
+        overwrite: importOverwrite,
+        create_missing: importCreateMissing,
+      }, (pct) => {
+        setUploadProgress(pct);
+      });
+    },
+    onMutate: () => {
+      setUploadProgress(0);
+      setImportResult(null);
+      setImportTask(null);
+      stopImportPolling();
+    },
+    onSuccess: (task: ProductImportTaskSnapshot) => {
+      setUploadProgress(100);
+      setImportTask(task);
+      startImportPolling(task.id);
+    },
+    onError: (error: unknown) => {
+      stopImportPolling();
+      toast.error(getErrorMessage(error, t('products.import.failed', locale === 'zh' ? '导入失败' : 'Import failed')));
+    },
+  });
+
+  const downloadTemplate = async () => {
+    try {
+      const blob = await ProductService.downloadImportTemplate(importBrand);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const templateBrand = importBrand || 'generic';
+      a.download = `product-import-template-${templateBrand}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success(t('products.import.templateDownloaded', locale === 'zh' ? '模板已下载' : 'Template downloaded'));
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, t('products.import.templateDownloadFailed', locale === 'zh' ? '下载模板失败' : 'Failed to download template')));
+    }
+  };
+
+  // Reset page to 1 when filters change
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    setCurrentPage(1);
+    updateURL({ search: value, page: 1 });
+  };
+
+  const handleCategoryChange = (value: string) => {
+    setSelectedCategory(value);
+    setCurrentPage(1);
+    updateURL({ category: value, page: 1 });
+  };
+
+  const handleBrandChange = (value: string) => {
+    setSelectedBrand(value);
+    setCurrentPage(1);
+    setSelectedIds([]);
+    setSelectAllResults(false);
+    updateURL({ brand: value, page: 1 });
+  };
+
+  const handleStatusChange = (value: string) => {
+    setStatusFilter(value);
+    setCurrentPage(1);
+    updateURL({ status: value, page: 1 });
+  };
+
+  const handleAISEOFilterChange = (value: AISEOFilter) => {
+    setAISEOFilter(value);
+    setCurrentPage(1);
+    setSelectedIds([]);
+    setSelectAllResults(false);
+    updateURL({ aiSeoStatus: value, page: 1 });
+  };
+
+  const handleIndexFilterChange = (value: IndexFilter) => {
+    setIndexFilter(value);
+    setCurrentPage(1);
+    setSelectedIds([]);
+    setSelectAllResults(false);
+    updateURL({ index: value, page: 1 });
+  };
+
+  const handlePriceFilterChange = (value: PriceFilter) => {
+    setPriceFilter(value);
+    setCurrentPage(1);
+    setSelectedIds([]);
+    setSelectAllResults(false);
+    updateURL({ price: value, page: 1 });
+  };
+
+  const handleSortChange = (value: string) => {
+    const [nextSortByRaw, nextSortDirRaw] = value.split(':');
+    const nextSortBy = (['created_at', 'updated_at', 'price', 'name'].includes(nextSortByRaw)
+      ? nextSortByRaw
+      : 'created_at') as 'created_at' | 'updated_at' | 'price' | 'name';
+    const nextSortDir = (nextSortDirRaw === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc';
+    setSortBy(nextSortBy);
+    setSortDir(nextSortDir);
+    setCurrentPage(1);
+    updateURL({ sortBy: nextSortBy, sortDir: nextSortDir, page: 1 });
+  };
+
+  const handlePageSizeChange = (value: number) => {
+    setPageSize(value);
+    setCurrentPage(1);
+    setSelectedIds([]);
+    setSelectAllResults(false);
+    updateURL({ pageSize: value, page: 1 });
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    updateURL({ page });
+  };
+
+  // Clear all filters
+  const handleClearFilters = () => {
+    setSearchQuery('');
+    setSelectedCategory('');
+    setSelectedBrand('');
+    setStatusFilter('all');
+    setAISEOFilter('all');
+    setIndexFilter('all');
+    setPriceFilter('all');
+    setSortBy('created_at');
+    setSortDir('desc');
+    setCurrentPage(1);
+    updateURL({ search: '', category: '', brand: '', status: 'all', aiSeoStatus: 'all', index: 'all', price: 'all', sortBy: 'created_at', sortDir: 'desc', page: 1 });
+  };
+
+  const toggleSelectAllOnPage = (checked: boolean, current: Product[]) => {
+    setSelectAllResults(false);
+    if (checked) setSelectedIds(current.map((p) => p.id));
+    else setSelectedIds([]);
+  };
+
+  const toggleSelectOne = (id: number, checked: boolean) => {
+    setSelectedIds((prev) => checked ? Array.from(new Set([...prev, id])) : prev.filter(x => x !== id));
+  };
+
+  const bulkSetActive = (value: boolean) => {
+    void runBulkFlagUpdate('is_active', value);
+  };
+
+  /**
+   * Apply the commerce policy (and any explicitly entered commercial fields) to
+   * the current selection in batches. Blank-only mode is the default so an
+   * indexed page is never rewritten by a batch action.
+   */
+  // Sends one bulk-update batch, paced under the nginx API rate limit and retried
+  // with backoff when the limit (or a busy upstream) answers 429/503.
+  const sendBulkBatch = async (
+    payload: Parameters<typeof ProductService.bulkUpdateProducts>[0],
+    batchIndex: number,
+    totalBatches: number,
+  ) => {
+    if (batchIndex > 1) await sleep(BULK_REQUEST_INTERVAL_MS);
+    await withThrottleRetry(
+      () => ProductService.bulkUpdateProducts(payload, { silentStatuses: THROTTLED_STATUSES }),
+      (attempt, delayMs) => setBulkUpdateProgress((prev) => ({
+        ...prev,
+        message: locale === 'zh'
+          ? `服务器限流，${Math.round(delayMs / 1000)} 秒后重试第 ${batchIndex}/${totalBatches} 批（第 ${attempt} 次重试）`
+          : `Rate limited; retrying batch ${batchIndex}/${totalBatches} in ${Math.round(delayMs / 1000)}s (retry ${attempt})`,
+      })),
+    );
+  };
+
+  const runCommerceFill = async () => {
+    if (!selectAllResults && selectedIds.length === 0) {
+      toast.error(t('products.toast.selectOne', locale === 'zh' ? '请至少选择一个产品' : 'Select at least one product'));
+      return;
+    }
+
+    const parseIds = async (): Promise<number[]> => {
+      if (!selectAllResults) return [...selectedIds];
+      const snapshot = await ProductService.getAdminProductSelectionIds(buildSelectAllPayload());
+      return snapshot.ids;
+    };
+
+    try {
+      setBulkUpdateProgress({
+        status: 'preparing',
+        processed: 0,
+        total: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        currentBatch: 0,
+        totalBatches: 0,
+        message: locale === 'zh' ? '正在准备批量填充...' : 'Preparing batch fill...',
+      });
+
+      const targetIds = await parseIds();
+      if (targetIds.length === 0) {
+        setBulkUpdateProgress({ status: 'idle', processed: 0, total: 0, updated: 0, skipped: 0, failed: 0, currentBatch: 0, totalBatches: 0, message: '' });
+        toast.error(t('products.bulk.noProducts', locale === 'zh' ? '没有可处理的产品' : 'No products to process'));
+        return;
+      }
+
+      const trimmed = Object.fromEntries(
+        Object.entries(commerceFill).filter(([, value]) => String(value).trim() !== '')
+      ) as Record<string, string>;
+
+      const basePayload: Record<string, unknown> = {
+        fill_from_commerce_policy: true,
+        only_if_empty: commerceFillOnlyIfEmpty,
+      };
+      for (const [key, value] of Object.entries(trimmed)) {
+        basePayload[key] = key === 'minimum_order_quantity' ? Number(value) : value.trim();
+      }
+
+      const total = targetIds.length;
+      const totalBatches = Math.ceil(total / BULK_UPDATE_BATCH_SIZE);
+      setBulkUpdateProgress({
+        status: 'running',
+        processed: 0,
+        total,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        currentBatch: 0,
+        totalBatches,
+        message: locale === 'zh'
+          ? `共 ${total} 个产品，开始分 ${totalBatches} 批填充`
+          : `Filling ${total} products across ${totalBatches} batches`,
+      });
+
+      for (let start = 0; start < total; start += BULK_UPDATE_BATCH_SIZE) {
+        const batchIds = targetIds.slice(start, start + BULK_UPDATE_BATCH_SIZE);
+        const batchIndex = Math.floor(start / BULK_UPDATE_BATCH_SIZE) + 1;
+        setBulkUpdateProgress((prev) => ({
+          ...prev,
+          status: 'running',
+          currentBatch: batchIndex,
+          totalBatches,
+          message: locale === 'zh'
+            ? `正在处理第 ${batchIndex}/${totalBatches} 批（${batchIds.length} 个产品）`
+            : `Processing batch ${batchIndex}/${totalBatches} (${batchIds.length} products)`,
+        }));
+
+        await sendBulkBatch({ ids: batchIds, ...(basePayload as any) }, batchIndex, totalBatches);
+
+        const processed = Math.min(start + batchIds.length, total);
+        setBulkUpdateProgress({
+          status: 'running',
+          processed,
+          total,
+          updated: processed,
+          skipped: 0,
+          failed: 0,
+          currentBatch: batchIndex,
+          totalBatches,
+          message: locale === 'zh' ? `已完成 ${processed}/${total} 个产品` : `${processed}/${total} products completed`,
+        });
+      }
+
+      setBulkUpdateProgress((prev) => ({
+        ...prev,
+        status: 'completed',
+        processed: total,
+        total,
+        updated: total,
+        currentBatch: totalBatches,
+        totalBatches,
+        message: locale === 'zh' ? '批量填充已完成' : 'Batch fill completed',
+      }));
+      setSelectedIds([]);
+      setSelectAllResults(false);
+      setShowCommerceFill(false);
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.lists() });
+      toast.success(
+        commerceFillOnlyIfEmpty
+          ? (locale === 'zh' ? `已为 ${total} 个产品的空白字段填充商务参数` : `Filled blank commercial fields on ${total} products`)
+          : (locale === 'zh' ? `已更新 ${total} 个产品的商务参数` : `Updated commercial fields on ${total} products`)
+      );
+    } catch (error: unknown) {
+      setBulkUpdateProgress((prev) => ({
+        ...prev,
+        status: 'failed',
+        message: getErrorMessage(error, t('products.toast.bulkFailed', locale === 'zh' ? '批量更新失败' : 'Bulk update failed')),
+      }));
+      toast.error(getErrorMessage(error, t('products.toast.bulkFailed', locale === 'zh' ? '批量更新失败' : 'Bulk update failed')));
+    }
+  };
+
+  const bulkSetFeatured = (value: boolean) => {
+    void runBulkFlagUpdate('is_featured', value);
+  };
+
+  const bulkSetNoIndex = (value: boolean) => {
+    void runBulkFlagUpdate('seo_noindex', value);
+  };
+
+  const runBulkFlagUpdate = async (field: 'is_active' | 'is_featured' | 'seo_noindex', value: boolean) => {
+    if (!selectAllResults && selectedIds.length === 0) {
+      toast.error(t('products.toast.selectOne', locale === 'zh' ? '请至少选择一个产品' : 'Select at least one product'));
+      return;
+    }
+
+    try {
+      setBulkUpdateProgress({
+        status: 'preparing',
+        processed: 0,
+        total: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        currentBatch: 0,
+        totalBatches: 0,
+        message: locale === 'zh' ? '正在准备批量更新...' : 'Preparing bulk update...',
+      });
+
+      let targetIds = [...selectedIds];
+      if (selectAllResults) {
+        const snapshot = await ProductService.getAdminProductSelectionIds(buildSelectAllPayload());
+        targetIds = snapshot.ids;
+      }
+
+      if (targetIds.length === 0) {
+        setBulkUpdateProgress({
+          status: 'idle',
+          processed: 0,
+          total: 0,
+          updated: 0,
+          skipped: 0,
+          failed: 0,
+          currentBatch: 0,
+          totalBatches: 0,
+          message: '',
+        });
+        toast.error(t('products.bulk.noProducts', locale === 'zh' ? '没有可处理的产品' : 'No products to process'));
+        return;
+      }
+
+      const total = targetIds.length;
+      const totalBatches = Math.ceil(total / BULK_UPDATE_BATCH_SIZE);
+
+      setBulkUpdateProgress({
+        status: 'running',
+        processed: 0,
+        total,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        currentBatch: 0,
+        totalBatches,
+        message: locale === 'zh'
+          ? `共 ${total} 个产品，开始分 ${totalBatches} 批处理`
+          : `Processing ${total} products across ${totalBatches} batches`,
+      });
+
+      for (let start = 0; start < total; start += BULK_UPDATE_BATCH_SIZE) {
+        const batchIds = targetIds.slice(start, start + BULK_UPDATE_BATCH_SIZE);
+        const batchIndex = Math.floor(start / BULK_UPDATE_BATCH_SIZE) + 1;
+
+        setBulkUpdateProgress((prev) => ({
+          ...prev,
+          status: 'running',
+          currentBatch: batchIndex,
+          totalBatches,
+          message: locale === 'zh'
+            ? `正在处理第 ${batchIndex}/${totalBatches} 批（${batchIds.length} 个产品）`
+            : `Processing batch ${batchIndex}/${totalBatches} (${batchIds.length} products)`,
+        }));
+
+        await sendBulkBatch({ ids: batchIds, [field]: value }, batchIndex, totalBatches);
+
+        const processed = Math.min(start + batchIds.length, total);
+        setBulkUpdateProgress({
+          status: 'running',
+          processed,
+          total,
+          updated: processed,
+          skipped: 0,
+          failed: 0,
+          currentBatch: batchIndex,
+          totalBatches,
+          message: locale === 'zh'
+            ? `已完成 ${processed}/${total} 个产品`
+            : `${processed}/${total} products completed`,
+        });
+      }
+
+      setBulkUpdateProgress((prev) => ({
+        ...prev,
+        status: 'completed',
+        processed: total,
+        total,
+        updated: total,
+        currentBatch: totalBatches,
+        totalBatches,
+        message: locale === 'zh' ? '批量更新已完成' : 'Bulk update completed',
+      }));
+      setSelectedIds([]);
+      setSelectAllResults(false);
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.lists() });
+      toast.success(
+        field === 'is_active'
+          ? (value
+            ? t('products.bulk.setActiveDone', locale === 'zh' ? `已批量启用 ${total} 个产品` : `Activated ${total} products`)
+            : t('products.bulk.setInactiveDone', locale === 'zh' ? `已批量停用 ${total} 个产品` : `Deactivated ${total} products`))
+          : (value
+            ? t('products.bulk.markFeaturedDone', locale === 'zh' ? `已批量设为推荐 ${total} 个产品` : `Marked ${total} products as featured`)
+            : t('products.bulk.unmarkFeaturedDone', locale === 'zh' ? `已批量取消推荐 ${total} 个产品` : `Unmarked ${total} featured products`))
+      );
+    } catch (error: unknown) {
+      setBulkUpdateProgress((prev) => ({
+        ...prev,
+        status: 'failed',
+        message: getErrorMessage(error, t('products.toast.bulkFailed', locale === 'zh' ? '批量更新失败' : 'Bulk update failed')),
+      }));
+      toast.error(getErrorMessage(error, t('products.toast.bulkFailed', locale === 'zh' ? '批量更新失败' : 'Bulk update failed')));
+    }
+  };
+
+  const stopAISEOPolling = () => {
+    if (aiSEOPollRef.current) {
+      clearInterval(aiSEOPollRef.current);
+      aiSEOPollRef.current = null;
+    }
+  };
+
+  const isAISEOJobFinished = (status: AIAgentSEOJob['status']) => (
+    status === 'completed' || status === 'completed_with_errors' || status === 'failed' || status === 'paused' || status === 'cancelled'
+  );
+
+  const refreshAISEOJob = async (jobID: string) => {
+    try {
+      const job = await AIAgentService.getSEOJob(jobID);
+      setActiveAISEOJob(job);
+      if (isAISEOJobFinished(job.status)) {
+        stopAISEOPolling();
+        queryClient.invalidateQueries({ queryKey: queryKeys.products.lists() });
+        if (job.status === 'completed') {
+          toast.success(locale === 'zh' ? `AI 任务完成：成功 ${job.succeeded} 个商品（含质检合格跳过的）` : `AI SEO job completed: ${job.succeeded} products optimized`);
+        } else if (job.status === 'completed_with_errors') {
+          toast.error(locale === 'zh' ? `AI 任务已完成，但有 ${job.failed} 个商品失败，可在 AI 优化记录查看原因` : `AI SEO job completed with ${job.failed} failed products`);
+        } else if (job.status === 'paused') {
+          toast.success(locale === 'zh' ? 'AI 任务已暂停；未处理商品会保留在队列中，可在 AI 优化记录继续。' : 'AI SEO job paused. Unprocessed products remain queued and can be resumed in AI SEO Records.');
+        } else if (job.status === 'cancelled') {
+          toast.success(locale === 'zh' ? 'AI 任务已结束；未处理商品已释放，可在以后重新优化。' : 'AI SEO job ended. Unprocessed products were released for future optimization.');
+        } else {
+          toast.error(job.error || (locale === 'zh' ? 'AI 任务失败' : 'AI SEO job failed'));
+        }
+        return true;
+      }
+    } catch (error: unknown) {
+      stopAISEOPolling();
+      toast.error(getErrorMessage(error, locale === 'zh' ? '无法读取 AI 任务进度' : 'Unable to read AI SEO job progress'));
+      return true;
+    }
+    return false;
+  };
+
+  const startAISEOPolling = async (jobID: string) => {
+    stopAISEOPolling();
+    const isFinished = await refreshAISEOJob(jobID);
+    if (isFinished) return;
+    aiSEOPollRef.current = setInterval(() => {
+      void refreshAISEOJob(jobID);
+    }, 2500);
+  };
+
+  const pauseActiveAISEOJob = async () => {
+    if (!activeAISEOJob || !['queued', 'running'].includes(activeAISEOJob.status)) return;
+    setIsPausingAISEOJob(true);
+    try {
+      const job = await AIAgentService.pauseSEOJob(activeAISEOJob.id);
+      setActiveAISEOJob(job);
+      stopAISEOPolling();
+      toast.success(locale === 'zh' ? 'AI 任务已暂停。已发出的请求可能会完成当前商品。' : 'AI SEO job paused. Requests already sent may finish their current product.');
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, locale === 'zh' ? '暂停 AI 任务失败' : 'Unable to pause AI SEO job'));
+    } finally {
+      setIsPausingAISEOJob(false);
+    }
+  };
+
+  const aiListingFilters = {
+    category_id: Number(selectedCategory) > 0 ? Number(selectedCategory) : undefined,
+    include_descendants: Boolean(selectedCategory),
+    brand: selectedBrand || undefined,
+    search: searchQuery || undefined,
+    status: (statusFilter === 'active' || statusFilter === 'inactive') ? statusFilter : 'all',
+    featured: statusFilter === 'featured' ? 'true' : undefined,
+    ai_seo_status: aiSEOFilter === 'all' ? undefined : aiSEOFilter,
+    seo_noindex: indexFilterParam(indexFilter),
+    price_status: priceFilterParam(priceFilter),
+  } as const;
+
+  return (
+    <AdminLayout>
+      <div className="space-y-6">
+        {/* Page Header */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('nav.products', 'Products')}</h1>
+            <p className="mt-1 text-sm text-gray-500">
+				{t('products.page.subtitle', locale === 'zh' ? '管理工业自动化产品库存' : 'Manage your model engine product inventory')}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/admin/ai-seo"
+              className="inline-flex items-center px-4 py-2 border border-violet-200 rounded-md shadow-sm text-sm font-medium text-violet-700 bg-violet-50 hover:bg-violet-100"
+            >
+              <SparklesIcon className="h-4 w-4 mr-2" />
+              {locale === 'zh' ? 'AI 优化记录' : 'AI Job Records'}
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    locale === 'zh'
+                      ? '确认清空所有产品的图片路径吗？这会把产品图片字段改为空图状态，但不会删除媒体库文件。此操作不可撤销。'
+                      : 'Clear image paths from every product? This makes all products appear image-empty, but does not delete media library files. This cannot be undone.'
+                  )
+                )
+                  return;
+                bulkClearProductImagesMutation.mutate();
+              }}
+              disabled={bulkClearProductImagesMutation.isPending}
+              className="inline-flex items-center px-4 py-2 border border-red-200 rounded-md shadow-sm text-sm font-medium text-red-700 bg-white hover:bg-red-50 disabled:opacity-50"
+            >
+              <TrashIcon className="h-4 w-4 mr-2" />
+              {bulkClearProductImagesMutation.isPending
+                ? (locale === 'zh' ? '清空中...' : 'Clearing...')
+                : (locale === 'zh' ? '清空全部产品图片' : 'Clear All Images')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowListingImport(true)}
+              className="inline-flex items-center px-4 py-2 border border-violet-200 rounded-md shadow-sm text-sm font-medium text-violet-700 bg-white hover:bg-violet-50"
+            >
+              <ClipboardDocumentListIcon className="h-4 w-4 mr-2" />
+              {locale === 'zh' ? '粘贴资料批量导入' : 'Paste Listings'}
+            </button>
+            <button
+              onClick={() => {
+                setShowImportModal(true);
+                setImportResult(null);
+                setImportFile(null);
+                setImportFormat('xlsx');
+                setImportTask(null);
+                setUploadProgress(0);
+                stopImportPolling();
+              }}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+            >
+              <ArrowUpTrayIcon className="h-4 w-4 mr-2" />
+				{t('products.import.bulk', locale === 'zh' ? '批量导入' : 'Bulk Import')}
+            </button>
+            <Link
+              href="/admin/products/new"
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              <PlusIcon className="h-4 w-4 mr-2" />
+				{t('products.new.title', locale === 'zh' ? '新增产品' : 'Add Product')}
+            </Link>
+          </div>
+        </div>
+
+        {showImportModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-2xl rounded-lg bg-white shadow-xl">
+              <div className="flex items-center justify-between border-b px-4 py-3">
+                <div>
+                  <div className="text-lg font-semibold text-gray-900">{locale === 'zh' ? '批量导入产品 / 报价' : 'Bulk Product / Quote Import'}</div>
+                  <div className="text-xs text-gray-500">{importFormat === 'csv' ? (locale === 'zh' ? '报价 CSV：品牌 / 型号 / 价格 / 交期' : 'Quote CSV: Brand / Model / Price / Lead time') : (locale === 'zh' ? '商品 XLSX：型号 / 价格 / 数量 / 重量kg / 分类' : 'Product XLSX: Model / Price / Quantity / WeightKg / Category')}</div>
+                </div>
+                <button
+                  onClick={() => {
+                    stopImportPolling();
+                    setShowImportModal(false);
+                  }}
+                  className="rounded-md p-1 text-gray-500 hover:bg-gray-100"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="p-4 space-y-4">
+                <div className="inline-flex w-full rounded-md border border-gray-200 bg-gray-50 p-1 sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => { setImportFormat('xlsx'); setImportFile(null); setImportResult(null); setImportTask(null); stopImportPolling(); }}
+                    className={`flex-1 rounded px-3 py-2 text-sm font-medium sm:flex-none ${importFormat === 'xlsx' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600'}`}
+                  >
+                    {locale === 'zh' ? '商品 XLSX' : 'Product XLSX'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setImportFormat('csv'); setImportFile(null); setImportResult(null); setImportTask(null); stopImportPolling(); }}
+                    className={`flex-1 rounded px-3 py-2 text-sm font-medium sm:flex-none ${importFormat === 'csv' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600'}`}
+                  >
+                    {locale === 'zh' ? '报价 CSV' : 'Quote CSV'}
+                  </button>
+                </div>
+
+                {importFormat === 'csv' && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    {locale === 'zh' ? '上传已有报价.csv 或未报价型号.csv。已有 SKU 不会重复创建；空价格会创建为“联系询价”产品，且不会清空网站上已有价格。' : 'Upload your quoted or unquoted CSV. Existing SKUs are updated without duplicates; blank prices create quote-only products and never erase an existing site price.'}
+                  </div>
+                )}
+
+                {importFormat === 'xlsx' && <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+                  <div className="w-full sm:w-auto">
+					<label className="block text-sm font-medium text-gray-700 mb-1">{t('products.import.brand', locale === 'zh' ? '品牌' : 'Brand')}</label>
+                    <select
+                      value={importBrand}
+                      onChange={(e) => setImportBrand(e.target.value)}
+                      className="w-full sm:w-48 px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    >
+                      <option value="">{locale === 'zh' ? '自动 / 通用' : 'Auto / Generic'}</option>
+                      <option value="fanuc">FANUC</option>
+                      <option value="mitsubishi">Mitsubishi</option>
+                      <option value="siemens">Siemens</option>
+                      <option value="abb">ABB</option>
+                    </select>
+					<p className="mt-1 text-xs text-gray-500">{t('products.import.brandHint', locale === 'zh' ? '建议选择品牌；留空时只会接受型号本身能确认品牌和类型的产品，其余产品保持未启用。' : 'Choose a brand when possible. Blank uses model evidence only; products without verified brand and type stay inactive.')}</p>
+                  </div>
+                  <button
+                    onClick={downloadTemplate}
+                    className="inline-flex items-center justify-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                  >
+                    <ArrowDownTrayIcon className="h-4 w-4 mr-2" />
+					{t('products.import.downloadTemplate', locale === 'zh' ? '下载模板' : 'Download Template')}
+                  </button>
+                </div>}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{importFormat === 'csv' ? (locale === 'zh' ? '上传 .csv 文件' : 'Upload .csv') : t('products.import.uploadXlsx', locale === 'zh' ? '上传 .xlsx 文件' : 'Upload .xlsx')}</label>
+                  <input
+                    type="file"
+                    accept={importFormat === 'csv' ? '.csv,text/csv' : '.xlsx'}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] || null;
+                      setImportFile(f);
+                      setImportResult(null);
+                      setImportTask(null);
+                      setUploadProgress(0);
+                      stopImportPolling();
+                    }}
+                    className="block w-full text-sm"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">{importFormat === 'csv' ? (locale === 'zh' ? '支持中文或英文列名，系统会识别 BOM、带逗号的美元价格和重复型号。品牌、型号和类型无法确认时，产品会保持未启用。' : 'Chinese or English headers are supported, including BOM, comma-formatted prices and duplicate models. Products stay inactive when brand, model, type, or category cannot be verified.') : t('products.import.hint', locale === 'zh' ? '系统会按 SKU/型号/料号匹配；按品牌和型号类型匹配现有启用分类。分类不存在或无法确认时不会创建新分类，产品保持未启用。' : 'We match by SKU/model/part number, then assign an existing active category from the verified brand and product type. Unknown categories are never created and the product stays inactive.')}</p>
+                </div>
+
+                {importFormat === 'xlsx' && <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+                  <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={importCreateMissing}
+                      onChange={(e) => setImportCreateMissing(e.target.checked)}
+                      className="h-4 w-4"
+                    />
+					{t('products.import.createMissing', locale === 'zh' ? '自动创建缺失的产品' : 'Create missing products')}
+                  </label>
+                  <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={importOverwrite}
+                      onChange={(e) => setImportOverwrite(e.target.checked)}
+                      className="h-4 w-4"
+                    />
+					{t('products.import.overwrite', locale === 'zh' ? '覆盖名称/描述/SEO' : 'Overwrite name/description/SEO')}
+                  </label>
+                </div>}
+
+                {(importMutation.isPending || importTask) && (
+                  <div className="rounded-md border border-blue-200 bg-blue-50 p-3 space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between text-sm text-gray-700">
+                        <span>{locale === 'zh' ? '文件上传进度' : 'Upload progress'}</span>
+                        <span>{uploadProgress}%</span>
+                      </div>
+                      <div className="mt-1 h-2 overflow-hidden rounded-full bg-blue-100">
+                        <div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${uploadProgress}%` }} />
+                      </div>
+                    </div>
+
+                    {importTask && (
+                      <div>
+                        <div className="flex items-center justify-between text-sm text-gray-700">
+                          <span>{locale === 'zh' ? '后台导入进度' : 'Import progress'}</span>
+                          <span>{Math.round(importTask.progress_pct || 0)}%</span>
+                        </div>
+                        <div className="mt-1 h-2 overflow-hidden rounded-full bg-emerald-100">
+                          <div className="h-full rounded-full bg-emerald-600 transition-all" style={{ width: `${Math.max(0, Math.min(100, importTask.progress_pct || 0))}%` }} />
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
+                          <span>{locale === 'zh'
+                            ? `状态：${importTask.status === 'queued' ? '排队中' : importTask.status === 'processing' ? '处理中' : importTask.status === 'completed' ? '已完成' : '失败'}`
+                            : `Status: ${importTask.status}`}</span>
+                          <span>{locale === 'zh' ? `已处理：${importTask.processed_rows}/${importTask.total_rows || '?'}` : `Processed: ${importTask.processed_rows}/${importTask.total_rows || '?'}`}</span>
+                          <span>{locale === 'zh' ? `新增：${importTask.created}` : `Created: ${importTask.created}`}</span>
+                          <span>{locale === 'zh' ? `更新：${importTask.updated}` : `Updated: ${importTask.updated}`}</span>
+                          <span>{locale === 'zh' ? `跳过：${importTask.skipped}` : `Skipped: ${importTask.skipped}`}</span>
+                          <span>{locale === 'zh' ? `失败：${importTask.failed}` : `Failed: ${importTask.failed}`}</span>
+                        </div>
+                        {importTask.message && (
+                          <div className="mt-2 text-xs text-gray-500">{importTask.message}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {importResult && (
+                    <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+					<div className="text-sm font-semibold text-gray-900">{t('common.result', locale === 'zh' ? '结果' : 'Result')}</div>
+                    <div className="mt-1 text-sm text-gray-700">
+						{t('products.import.summary', locale === 'zh'
+							? `总行数：${importResult.total_rows} | 新增：${importResult.created} | 更新：${importResult.updated} | 失败：${importResult.failed}`
+							: `Total rows: ${importResult.total_rows} | Created: ${importResult.created} | Updated: ${importResult.updated} | Failed: ${importResult.failed}`)}
+                    </div>
+
+                    {Array.isArray(importResult.items) && importResult.items.length > 0 && (
+                      <div className="mt-3 max-h-56 overflow-auto rounded border border-gray-200 bg-white">
+                        <table className="min-w-full text-sm">
+                          <thead className="sticky top-0 bg-gray-50">
+                            <tr>
+							  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t('common.row', locale === 'zh' ? '行号' : 'Row')}</th>
+							  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t('products.import.model', locale === 'zh' ? '型号' : 'Model')}</th>
+							  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t('common.action', locale === 'zh' ? '操作' : 'Action')}</th>
+							  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t('common.message', locale === 'zh' ? '信息' : 'Message')}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {importResult.items.slice(0, 200).map((it, i: number) => (
+                              <tr key={`${it.row_number || i}-${it.model || i}`} className="border-t">
+                                <td className="px-3 py-2 text-gray-700">{it.row_number}</td>
+                                <td className="px-3 py-2 font-mono text-gray-900">{it.model}</td>
+                                <td className="px-3 py-2 text-gray-700">{it.action}</td>
+                                <td className="px-3 py-2 text-gray-600">{it.message}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+                <button
+                  onClick={() => {
+                    stopImportPolling();
+                    setShowImportModal(false);
+                  }}
+                  className="px-4 py-2 rounded-md text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50"
+                >
+				  {t('common.close', locale === 'zh' ? '关闭' : 'Close')}
+                </button>
+                <button
+                  onClick={() => importMutation.mutate()}
+                  disabled={!importFile || importMutation.isPending}
+                  className="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60"
+                >
+                  <ArrowUpTrayIcon className="h-4 w-4 mr-2" />
+				  {importMutation.isPending
+					? t('products.import.importing', locale === 'zh' ? '导入中...' : 'Importing...')
+					: t('shipping.import', locale === 'zh' ? '导入' : 'Import')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+            <div className="text-sm text-emerald-800">{locale === 'zh' ? '已优化产品' : 'Optimized Products'}</div>
+            <div className="mt-2 text-2xl font-semibold text-emerald-950">{optimizationStatus?.optimized_products ?? '-'}</div>
+            <div className="mt-1 text-xs text-emerald-700">
+              {locale === 'zh' ? '近 30 天内自动或手动优化过' : 'Optimized within the last 30 days'}
+            </div>
+          </div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <div className="text-sm text-amber-800">{locale === 'zh' ? '待优化产品' : 'Needs Optimization'}</div>
+            <div className="mt-2 text-2xl font-semibold text-amber-950">{optimizationStatus?.needs_optimization ?? '-'}</div>
+            <div className="mt-1 text-xs text-amber-700">
+              {locale === 'zh' ? '缺少 SEO 字段或长期未刷新' : 'Missing SEO fields or stale optimization'}
+            </div>
+          </div>
+          <div className="rounded-lg border border-sky-200 bg-sky-50 p-4">
+            <div className="text-sm text-sky-800">{locale === 'zh' ? '平均 SEO 分' : 'Average SEO Score'}</div>
+            <div className="mt-2 text-2xl font-semibold text-sky-950">
+              {typeof optimizationStatus?.average_seo_score === 'number' ? optimizationStatus.average_seo_score.toFixed(2) : '-'}
+            </div>
+            <div className="mt-1 text-xs text-sky-700">
+              {locale === 'zh' ? '按后台内容完整度自动计算' : 'Calculated from product content completeness'}
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <div className="text-sm text-slate-800">{locale === 'zh' ? '自动优化状态' : 'Auto Optimization'}</div>
+            <div className="mt-2 text-base font-semibold text-slate-950">
+              {locale === 'zh' ? '已启用' : 'Enabled'}
+            </div>
+            <div className="mt-1 text-xs text-slate-700">
+              {locale === 'zh'
+                ? '后台新建/编辑产品后会按已核实品牌和型号匹配现有分类，并自动补 SEO 字段与 FAQ；无法确认时保持未启用'
+                : 'New and edited products match an existing category from verified brand/model evidence, then auto-fill SEO fields and FAQs; unresolved products stay inactive'}
+            </div>
+          </div>
+        </div>
+
+        {/* Field coverage: which model-derivable fields are still empty. This is
+            the live check that "optimize by model number" has nothing left to do. */}
+        {coverageRows.length > 0 && (
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div className="text-sm font-medium text-gray-900">
+                {locale === 'zh'
+                  ? `型号自动优化可补齐字段（共 ${optimizationStatus?.field_coverage_total ?? 0} 个在售产品）`
+                  : `Fields the model-number optimization can still fill (${optimizationStatus?.field_coverage_total ?? 0} active products)`}
+              </div>
+              <div className="text-xs text-gray-500">
+                {locale === 'zh'
+                  ? '数字为缺失该字段的产品数；自动优化只填空缺，不覆盖已发布内容'
+                  : 'Numbers are products missing that field; optimization only fills blanks and never rewrites published copy'}
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {coverageRows.map((row) => (
+                <span
+                  key={row.key}
+                  className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-900"
+                >
+                  {locale === 'zh' ? row.zh : row.en}
+                  <span className="font-semibold">{row.count}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Bulk actions and Page Size Selector */}
+        <div className="bg-white shadow rounded-lg border border-gray-200">
+          {/* Top Row - Page Size and Bulk Actions Header */}
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 p-4 border-b border-gray-200">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-700 font-medium">{t('common.show', locale === 'zh' ? '显示：' : 'Show:')}</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+				  <option value={20}>{locale === 'zh' ? '每页 20' : '20 per page'}</option>
+				  <option value={50}>{locale === 'zh' ? '每页 50' : '50 per page'}</option>
+				  <option value={100}>{locale === 'zh' ? '每页 100' : '100 per page'}</option>
+				  <option value={200}>{locale === 'zh' ? '每页 200' : '200 per page'}</option>
+				  <option value={500}>{locale === 'zh' ? '每页 500' : '500 per page'}</option>
+                </select>
+              </div>
+              <div className="text-sm text-gray-500">
+				{t('common.total', locale === 'zh' ? '总计：' : 'Total:')} {totalProducts} {t('products.page.count', locale === 'zh' ? '个产品' : 'products')}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              {!selectAllResults ? (
+                <>
+                  <span className="text-gray-600 font-medium">
+					{t('common.selected', locale === 'zh' ? '已选择' : 'Selected')}: <span className="text-blue-600">{selectedIds.length.toLocaleString()}</span>
+                  </span>
+                  {filteredProducts.length > 0 && totalProducts > filteredProducts.length && (
+                    <button
+                      onClick={() => { setSelectAllResults(true); }}
+                      className="inline-flex items-center px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors font-medium"
+                    >
+						{t('common.selectAll', locale === 'zh' ? `选择全部 ${totalProducts.toLocaleString()} 条结果` : `Select all ${totalProducts.toLocaleString()} results`)}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <span className="text-green-700 font-medium bg-green-50 px-3 py-1.5 rounded-md">
+				{t('common.allSelected', locale === 'zh' ? `已选择全部 ${totalProducts.toLocaleString()} 条结果` : `All ${totalProducts.toLocaleString()} results selected`)}
+                </span>
+              )}
+              {totalProducts > 0 && (
+                <span className="inline-flex flex-wrap items-center gap-1.5">
+                  <span className="text-gray-500">{locale === 'zh' ? '自定义选择前' : 'Select first'}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={totalProducts}
+                    value={customSelectCount}
+                    onChange={(e) => setCustomSelectCount(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void selectFirstNResults(); }}
+                    placeholder={String(Math.min(totalProducts, 1000))}
+                    className="w-28 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    aria-label={locale === 'zh' ? '自定义选择数量' : 'Custom selection count'}
+                  />
+                  <span className="text-gray-500">{locale === 'zh' ? '条' : ''}</span>
+                  <button
+                    onClick={() => void selectFirstNResults()}
+                    disabled={selectingCustomCount || !customSelectCount}
+                    className="inline-flex items-center px-2.5 py-1 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={locale === 'zh' ? '按当前筛选和排序选择列表最前面的 N 个产品' : 'Select the first N products of the current filter and sort'}
+                  >
+                    {selectingCustomCount ? (locale === 'zh' ? '选择中…' : 'Selecting…') : (locale === 'zh' ? '选择' : 'Select')}
+                  </button>
+                  {SELECT_COUNT_PRESETS.filter((n) => n < totalProducts).map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => void selectFirstNResults(n)}
+                      disabled={selectingCustomCount}
+                      className="inline-flex items-center px-2 py-0.5 text-xs text-gray-600 border border-gray-300 hover:border-blue-400 hover:text-blue-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {n.toLocaleString()}
+                    </button>
+                  ))}
+                </span>
+              )}
+              {(selectAllResults || selectedIds.length > 0) && (
+                <button
+                  onClick={() => { setSelectAllResults(false); setSelectedIds([]); }}
+                  className="inline-flex items-center px-3 py-1.5 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors font-medium"
+                >
+					{t('common.clearSelection', locale === 'zh' ? '清空选择' : 'Clear selection')}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Bottom Row - Bulk Action Buttons */}
+          <div className="p-4">
+            <div className="flex flex-wrap items-center gap-2">
+				<span className="text-sm text-gray-700 font-medium mr-2">{t('common.bulkActions', locale === 'zh' ? '批量操作：' : 'Bulk actions:')}</span>
+
+              <button
+                onClick={() => bulkSetActive(true)}
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={(bulkUpdateMutation.isPending || bulkUpdateProgress.status === 'preparing' || bulkUpdateProgress.status === 'running') || (!selectAllResults && selectedIds.length === 0)}
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+				{t('products.bulk.setActive', locale === 'zh' ? '设为启用' : 'Set Active')}
+              </button>
+
+              <button
+                onClick={() => bulkSetActive(false)}
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-gray-600 hover:bg-gray-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={(bulkUpdateMutation.isPending || bulkUpdateProgress.status === 'preparing' || bulkUpdateProgress.status === 'running') || (!selectAllResults && selectedIds.length === 0)}
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+				{t('products.bulk.setInactive', locale === 'zh' ? '设为停用' : 'Set Inactive')}
+              </button>
+
+              <button
+                onClick={() => bulkSetFeatured(true)}
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={(bulkUpdateMutation.isPending || bulkUpdateProgress.status === 'preparing' || bulkUpdateProgress.status === 'running') || (!selectAllResults && selectedIds.length === 0)}
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                </svg>
+				{t('products.bulk.markFeatured', locale === 'zh' ? '设为推荐' : 'Mark Featured')}
+              </button>
+
+              <button
+                onClick={() => bulkSetFeatured(false)}
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-slate-600 hover:bg-slate-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={(bulkUpdateMutation.isPending || bulkUpdateProgress.status === 'preparing' || bulkUpdateProgress.status === 'running') || (!selectAllResults && selectedIds.length === 0)}
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
+                </svg>
+				{t('products.bulk.unmarkFeatured', locale === 'zh' ? '取消推荐' : 'Unmark Featured')}
+              </button>
+
+              <button
+                onClick={() => bulkSetNoIndex(false)}
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={(bulkUpdateMutation.isPending || bulkUpdateProgress.status === 'preparing' || bulkUpdateProgress.status === 'running') || (!selectAllResults && selectedIds.length === 0)}
+                title={locale === 'zh' ? '允许搜索引擎收录：进入 sitemap、提交 IndexNow、页面不再输出 noindex' : 'Allow search indexing: include in sitemap and IndexNow, drop the noindex tag'}
+              >
+                {locale === 'zh' ? '允许收录' : 'Allow Indexing'}
+              </button>
+
+              <button
+                onClick={() => bulkSetNoIndex(true)}
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-stone-600 hover:bg-stone-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={(bulkUpdateMutation.isPending || bulkUpdateProgress.status === 'preparing' || bulkUpdateProgress.status === 'running') || (!selectAllResults && selectedIds.length === 0)}
+                title={locale === 'zh' ? '暂不收录：页面输出 noindex，并从 sitemap 和 IndexNow 中排除' : 'Hold from indexing: noindex tag, excluded from sitemap and IndexNow'}
+              >
+                {locale === 'zh' ? '暂不收录' : 'Hold Indexing'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowCommerceFill((prev) => !prev)}
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-teal-700 hover:bg-teal-800 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={(bulkUpdateProgress.status === 'preparing' || bulkUpdateProgress.status === 'running') || (!selectAllResults && selectedIds.length === 0)}
+                title={locale === 'zh'
+                  ? '按后台可配置的运费/保修承诺（如 4-5 DAYS）批量填充商务参数，默认只填空白字段。'
+                  : 'Bulk fill shipping/warranty parameters from the admin-editable commerce policy. Blank fields only by default.'}
+              >
+                {locale === 'zh' ? '填充商务参数' : 'Fill Commerce Fields'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowAIListingModal(true)}
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-violet-600 hover:bg-violet-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={totalProducts === 0}
+                title={locale === 'zh' ? '质检后只优化资料不完整或 SEO 不合格的产品：联网检索、按固定格式重写、自动归类' : 'Check listings and rewrite only incomplete or weak ones in the fixed format'}
+              >
+                <SparklesIcon className="h-4 w-4 mr-2" />
+                {selectAllResults
+                  ? (locale === 'zh' ? `AI 智能优化（全部筛选 ${totalProducts}）` : `AI Optimize (all ${totalProducts})`)
+                  : selectedIds.length > 0
+                    ? (locale === 'zh' ? `AI 智能优化（已选 ${selectedIds.length}）` : `AI Optimize (${selectedIds.length} selected)`)
+                    : (locale === 'zh' ? 'AI 智能优化' : 'AI Optimize')}
+              </button>
+
+              <button
+                onClick={() => setShowCategoryImagePicker(true)}
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-fuchsia-600 hover:bg-fuchsia-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={bulkCategoryImageMutation.isPending || (!selectAllResults && selectedIds.length === 0)}
+				title={t('products.bulk.categoryImageTitle', locale === 'zh' ? '按当前筛选的品牌/分类批量替换产品图，可只补空图或全部覆盖' : 'Bulk replace product images by current brand/category filter')}
+              >
+                <PhotoIcon className="h-4 w-4 mr-2" />
+				{t('products.bulk.categoryImage', locale === 'zh' ? '分类批量换图' : 'Batch Category Image')}
+              </button>
+
+              <button
+                onClick={bulkApplyDefaultImages}
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={
+                  bulkApplyDefaultImageMutation.isPending ||
+                  (!selectAllResults && selectedIds.length === 0)
+                }
+				title={t('products.bulk.applyDefaultTitle', locale === 'zh' ? '为当前没有图片的产品应用默认 SKU 水印图' : 'Apply default SKU-watermarked image to products that currently have no images')}
+              >
+                <SparklesIcon className="h-4 w-4 mr-2" />
+				{t('products.bulk.applyDefault', locale === 'zh' ? '应用默认图片' : 'Apply Default Image')}
+              </button>
+
+              <button
+                onClick={bulkRemoveDefaultImages}
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={
+                  bulkRemoveDefaultImageMutation.isPending ||
+                  (!selectAllResults && selectedIds.length === 0)
+                }
+				title={t('products.bulk.removeDefaultTitle', locale === 'zh' ? '移除默认水印图 URL（保留其他图片）' : 'Remove the default watermark image URL (keeps other images)')}
+              >
+                <XMarkIcon className="h-4 w-4 mr-2" />
+				{t('products.bulk.removeDefault', locale === 'zh' ? '移除默认图片' : 'Remove Default Image')}
+              </button>
+
+              {(selectedIds.length > 0 || selectAllResults) && (
+                <div className="ml-auto text-sm text-gray-500 bg-gray-100 px-3 py-2 rounded-lg">
+					{selectAllResults
+						? (locale === 'zh' ? `已选择 ${totalProducts} 个产品` : `${totalProducts} products selected`)
+						: (locale === 'zh' ? `已选择 ${selectedIds.length} 个产品` : `${selectedIds.length} products selected`)}
+                </div>
+              )}
+            </div>
+            {showCommerceFill && (
+              <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold text-teal-900">
+                      {locale === 'zh' ? '批量填充商务参数' : 'Bulk fill commerce fields'}
+                    </div>
+                    <div className="mt-1 text-xs text-teal-800">
+                      {locale === 'zh'
+                        ? `承运时间/交期来自后台 Commerce Policy（当前：${resolveLeadTime(undefined, effectiveCommercePolicy)}），不在代码里写死。`
+                        : `Lead time comes from the admin Commerce Policy (currently: ${resolveLeadTime(undefined, effectiveCommercePolicy)}), not from hard-coded copy.`}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowCommerceFill(false)}
+                    className="text-sm font-medium text-teal-800 hover:text-teal-900"
+                  >
+                    {locale === 'zh' ? '收起' : 'Close'}
+                  </button>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {([
+                    ['lead_time', locale === 'zh' ? '交期' : 'Lead time', resolveLeadTime(undefined, effectiveCommercePolicy)],
+                    ['warranty_period', locale === 'zh' ? '保修期' : 'Warranty', resolveWarrantyPeriod(undefined, effectiveCommercePolicy)],
+                    ['origin_country', locale === 'zh' ? '原产国' : 'Country of origin', ''],
+                    ['packaging_info', locale === 'zh' ? '包装' : 'Packaging', 'Original factory packaging'],
+                    ['certifications', locale === 'zh' ? '认证' : 'Certifications', 'CE'],
+                    ['dimensions', locale === 'zh' ? '尺寸' : 'Dimensions', ''],
+                    ['minimum_order_quantity', locale === 'zh' ? '最小起订量' : 'Min order qty', '1'],
+                  ] as Array<[keyof typeof commerceFill, string, string]>).map(([key, label, placeholder]) => (
+                    <label key={key} className="block">
+                      <span className="block text-xs font-medium text-teal-900">{label}</span>
+                      <input
+                        value={commerceFill[key]}
+                        onChange={(e) => setCommerceFill((prev) => ({ ...prev, [key]: e.target.value }))}
+                        placeholder={placeholder}
+                        className="mt-1 w-full rounded-md border border-teal-300 px-3 py-1.5 text-sm text-gray-900 focus:border-teal-500 focus:outline-none"
+                      />
+                    </label>
+                  ))}
+                  <label className="block">
+                    <span className="block text-xs font-medium text-teal-900">{locale === 'zh' ? '成色' : 'Condition'}</span>
+                    <select
+                      value={commerceFill.condition_type}
+                      onChange={(e) => setCommerceFill((prev) => ({ ...prev, condition_type: e.target.value }))}
+                      className="mt-1 w-full rounded-md border border-teal-300 px-3 py-1.5 text-sm text-gray-900 focus:border-teal-500 focus:outline-none"
+                    >
+                      <option value="">{locale === 'zh' ? '不修改' : 'Leave unchanged'}</option>
+                      <option value="new">{locale === 'zh' ? '全新 new' : 'New'}</option>
+                      <option value="refurbished">{locale === 'zh' ? '翻新 refurbished' : 'Refurbished'}</option>
+                      <option value="used">{locale === 'zh' ? '二手 used' : 'Used'}</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-4">
+                  <label className="inline-flex items-center gap-2 text-sm text-teal-900">
+                    <input
+                      type="checkbox"
+                      checked={commerceFillOnlyIfEmpty}
+                      onChange={(e) => setCommerceFillOnlyIfEmpty(e.target.checked)}
+                      className="h-4 w-4 rounded border-teal-400"
+                    />
+                    {locale === 'zh'
+                      ? '只填空白字段（推荐，不动已收录内容）'
+                      : 'Only fill blank fields (recommended — never overwrites indexed copy)'}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void runCommerceFill()}
+                    disabled={bulkUpdateProgress.status === 'preparing' || bulkUpdateProgress.status === 'running'}
+                    className="inline-flex items-center rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {bulkUpdateProgress.status === 'running'
+                      ? (locale === 'zh' ? '处理中…' : 'Applying…')
+                      : (locale === 'zh' ? '应用到所选产品' : 'Apply to selection')}
+                  </button>
+                  <Link href="/admin/commerce-policy" className="text-sm font-medium text-teal-800 underline hover:text-teal-900">
+                    {locale === 'zh' ? '编辑运费/保修承诺' : 'Edit shipping & warranty policy'}
+                  </Link>
+                </div>
+              </div>
+            )}
+            {selectAllResults && (
+              <p className="mt-3 text-sm text-amber-700">
+                {locale === 'zh'
+                  ? `已选择全部筛选结果。批量操作与 AI 智能优化会作用于当前搜索、分类、品牌和状态筛选出的全部商品。`
+                  : `All filtered results are selected. Bulk actions and AI optimization apply to every product matching the current filters.`}
+              </p>
+            )}
+            {activeAISEOJob && (
+              <div className={`mt-4 rounded-lg border p-4 ${
+                activeAISEOJob.status === 'failed' || activeAISEOJob.status === 'cancelled'
+                  ? 'border-rose-200 bg-rose-50'
+                  : activeAISEOJob.status === 'completed' || activeAISEOJob.status === 'completed_with_errors'
+                    ? 'border-emerald-200 bg-emerald-50'
+                    : activeAISEOJob.status === 'paused'
+                      ? 'border-orange-200 bg-orange-50'
+                    : 'border-violet-200 bg-violet-50'
+              }`}>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900">{locale === 'zh' ? 'AI 任务进度' : 'AI job progress'}</div>
+                    <div className="mt-1 text-xs text-gray-600">{locale === 'zh' ? `任务 ${activeAISEOJob.id.slice(0, 8)}…` : `Job ${activeAISEOJob.id.slice(0, 8)}…`} · {activeAISEOJob.status}</div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {(activeAISEOJob.status === 'queued' || activeAISEOJob.status === 'running') && <button type="button" onClick={() => void pauseActiveAISEOJob()} disabled={isPausingAISEOJob} className="rounded-lg border border-orange-300 bg-orange-50 px-3 py-1.5 text-sm font-semibold text-orange-800 hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50">{isPausingAISEOJob ? (locale === 'zh' ? '暂停中…' : 'Pausing…') : (locale === 'zh' ? '暂停任务' : 'Pause job')}</button>}
+                    <Link href="/admin/ai-seo" className="text-sm font-medium text-violet-700 hover:text-violet-900">{activeAISEOJob.status === 'paused' ? (locale === 'zh' ? '前往继续任务' : 'Resume in records') : (locale === 'zh' ? '查看全部记录' : 'View all records')}</Link>
+                  </div>
+                </div>
+                <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-white/80">
+                  <div className="h-full rounded-full bg-violet-600 transition-all" style={{ width: `${activeAISEOJob.total > 0 ? Math.min(100, Math.round((activeAISEOJob.processed / activeAISEOJob.total) * 100)) : 0}%` }} />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-3 text-sm text-gray-700">
+                  <span>{locale === 'zh' ? '已处理' : 'Processed'}: {activeAISEOJob.processed}/{activeAISEOJob.total}</span>
+                  <span>{locale === 'zh' ? '成功' : 'Succeeded'}: {activeAISEOJob.succeeded}</span>
+                  <span>{locale === 'zh' ? '失败' : 'Failed'}: {activeAISEOJob.failed}</span>
+                </div>
+                {activeAISEOJob.error && <p className="mt-2 text-sm text-rose-700">{activeAISEOJob.error}</p>}
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">{locale === 'zh' ? '分类图片品牌' : 'Category Image Brand'}</span>
+                <select
+                  value={categoryImageBrand}
+                  onChange={(e) => setCategoryImageBrand(e.target.value)}
+                  className="px-3 py-2 text-sm border border-gray-300 rounded-md"
+                >
+                  <option value="">{locale === 'zh' ? '自动 / 当前筛选' : 'Auto / Current Filters'}</option>
+                  <option value="fanuc">FANUC</option>
+                  <option value="mitsubishi">Mitsubishi</option>
+                  <option value="siemens">Siemens</option>
+                  <option value="abb">ABB</option>
+                </select>
+              </div>
+              {selectedBrand && (
+                <div className="text-sm text-blue-600">
+                  {locale === 'zh'
+                    ? `当前已按品牌 ${selectedBrand.toUpperCase()} 筛选；这里可为分类图片操作选择另一品牌`
+                    : `Brand filter ${selectedBrand.toUpperCase()} is active; choose another brand here only for category image actions`}
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">{t('products.bulk.imageMode', locale === 'zh' ? '换图模式' : 'Image mode')}</span>
+                <select
+                  value={categoryImageMode}
+                  onChange={(e) => setCategoryImageMode(e.target.value as 'fill_empty' | 'replace_all')}
+                  className="px-3 py-2 text-sm border border-gray-300 rounded-md"
+                >
+                  <option value="fill_empty">{t('products.bulk.imageModeFill', locale === 'zh' ? '只补空图' : 'Fill Empty Only')}</option>
+                  <option value="replace_all">{t('products.bulk.imageModeReplace', locale === 'zh' ? '全部覆盖' : 'Replace All')}</option>
+                </select>
+              </div>
+              {selectedCategory ? (
+                <div className="text-sm text-gray-500">
+                  {t('products.bulk.categoryScoped', locale === 'zh' ? '当前会按已选分类范围执行' : 'Current category filter will scope this action')}
+                </div>
+              ) : (
+                <div className="text-sm text-amber-600">
+                  {t('products.bulk.categoryScopedHint', locale === 'zh' ? '未选分类时会作用于当前筛选结果；这里选择的品牌仅用于分类图片批量处理' : 'Without a category filter, this applies to the current filtered results; the selected brand is used only for category image actions')}
+                </div>
+              )}
+            </div>
+            {bulkUpdateProgress.status !== 'idle' && (
+              <div className={`mt-4 rounded-lg border p-4 ${
+                bulkUpdateProgress.status === 'failed'
+                  ? 'border-rose-200 bg-rose-50'
+                  : bulkUpdateProgress.status === 'completed'
+                    ? 'border-emerald-200 bg-emerald-50'
+                    : 'border-blue-200 bg-blue-50'
+              }`}>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-sm font-medium text-gray-900">
+                      {locale === 'zh' ? '批量更新进度' : 'Bulk update progress'}
+                    </div>
+                    <div className="mt-1 text-sm text-gray-700">{bulkUpdateProgress.message}</div>
+                  </div>
+                  <div className="text-sm text-gray-700">
+                    {bulkUpdateProgress.total > 0
+                      ? `${bulkUpdateProgress.processed}/${bulkUpdateProgress.total}`
+                      : (locale === 'zh' ? '准备中' : 'Preparing')}
+                  </div>
+                </div>
+                <div className="mt-3 h-3 overflow-hidden rounded-full bg-white/80">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      bulkUpdateProgress.status === 'failed'
+                        ? 'bg-rose-500'
+                        : bulkUpdateProgress.status === 'completed'
+                          ? 'bg-emerald-500'
+                          : 'bg-blue-500'
+                    }`}
+                    style={{
+                      width: `${bulkUpdateProgress.total > 0
+                        ? Math.min(100, Math.round((bulkUpdateProgress.processed / bulkUpdateProgress.total) * 100))
+                        : 8}%`
+                    }}
+                  />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-3 text-sm text-gray-700">
+                  <span>{locale === 'zh' ? '已处理' : 'Processed'}: {bulkUpdateProgress.processed}</span>
+                  {bulkUpdateProgress.totalBatches > 0 && (
+                    <span>
+                      {locale === 'zh' ? '批次' : 'Batch'}: {bulkUpdateProgress.currentBatch}/{bulkUpdateProgress.totalBatches}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="bg-white shadow rounded-lg p-6">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            {/* Search */}
+            <div>
+                <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">
+				{t('common.search', locale === 'zh' ? '搜索' : 'Search')}
+                </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
+                </div>
+                <input
+                  type="text"
+                  id="search"
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+				  placeholder={t('products.page.searchPh', locale === 'zh' ? '搜索产品...' : 'Search products...')}
+                />
+              </div>
+            </div>
+
+            {/* Category Filter */}
+            <div>
+                <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
+				{t('products.field.category', locale === 'zh' ? '分类' : 'Category')}
+                </label>
+              <select
+                id="category"
+                value={selectedCategory}
+                onChange={(e) => handleCategoryChange(e.target.value)}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              >
+				<option value="">{t('products.page.allCategories', locale === 'zh' ? '全部分类' : 'All Categories')}</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id.toString()}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+                <label htmlFor="brand" className="block text-sm font-medium text-gray-700 mb-1">
+				{t('products.import.brand', locale === 'zh' ? '品牌' : 'Brand')}
+                </label>
+              <select
+                id="brand"
+                value={selectedBrand}
+                onChange={(e) => handleBrandChange(e.target.value)}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              >
+				<option value="">{locale === 'zh' ? '全部品牌' : 'All Brands'}</option>
+                {selectedBrand && !brandOptions.some((b) => b.name.toLowerCase() === selectedBrand.toLowerCase()) && (
+                  <option value={selectedBrand}>{selectedBrand}</option>
+                )}
+                {brandOptions.map((b) => (
+                  <option key={b.name} value={b.name}>
+                    {b.name} ({b.count.toLocaleString()})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Status Filter */}
+            <div>
+                <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
+				{t('products.status.title', locale === 'zh' ? '状态' : 'Status')}
+                </label>
+              <select
+                id="status"
+                value={statusFilter}
+                onChange={(e) => handleStatusChange(e.target.value)}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              >
+				<option value="all">{t('common.all', locale === 'zh' ? '全部' : 'All')}</option>
+				<option value="active">{t('common.active', locale === 'zh' ? '启用' : 'Active')}</option>
+				<option value="inactive">{t('common.inactive', locale === 'zh' ? '停用' : 'Inactive')}</option>
+				<option value="featured">{t('products.status.featured', locale === 'zh' ? '推荐' : 'Featured')}</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="ai-seo-status" className="block text-sm font-medium text-gray-700 mb-1">
+                {locale === 'zh' ? 'AI SEO 状态' : 'AI SEO Status'}
+              </label>
+              <select
+                id="ai-seo-status"
+                value={aiSEOFilter}
+                onChange={(e) => handleAISEOFilterChange(e.target.value as AISEOFilter)}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="all">{locale === 'zh' ? '全部 AI SEO 状态' : 'All AI SEO statuses'}</option>
+                <option value="not_optimized">{locale === 'zh' ? '未 AI 优化' : 'Not AI optimized'}</option>
+                <option value="optimized">{locale === 'zh' ? 'AI 已优化' : 'AI optimized'}</option>
+                <option value="running">{locale === 'zh' ? 'AI 处理中' : 'AI processing'}</option>
+                <option value="failed">{locale === 'zh' ? 'AI 优化失败' : 'AI failed'}</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="index-status" className="block text-sm font-medium text-gray-700 mb-1">
+                {locale === 'zh' ? '收录状态' : 'Indexing'}
+              </label>
+              <select
+                id="index-status"
+                value={indexFilter}
+                onChange={(e) => handleIndexFilterChange(e.target.value as IndexFilter)}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="all">{locale === 'zh' ? '全部收录状态' : 'All indexing states'}</option>
+                <option value="indexed">{locale === 'zh' ? '已开放收录' : 'Indexable'}</option>
+                <option value="noindex">{locale === 'zh' ? '暂不收录（noindex）' : 'Held (noindex)'}</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="price-status" className="block text-sm font-medium text-gray-700 mb-1">
+                {locale === 'zh' ? '价格' : 'Price'}
+              </label>
+              <select
+                id="price-status"
+                value={priceFilter}
+                onChange={(e) => handlePriceFilterChange(e.target.value as PriceFilter)}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="all">{locale === 'zh' ? '全部价格' : 'All prices'}</option>
+                <option value="priced">{locale === 'zh' ? '有价格' : 'Priced'}</option>
+                <option value="inquiry">{locale === 'zh' ? '询价（价格为 0）' : 'Inquiry (price 0)'}</option>
+              </select>
+            </div>
+
+            {/* Sort */}
+            <div>
+              <label htmlFor="sort" className="block text-sm font-medium text-gray-700 mb-1">
+                {locale === 'zh' ? '排序' : 'Sort'}
+              </label>
+              <select
+                id="sort"
+                value={`${sortBy}:${sortDir}`}
+                onChange={(e) => handleSortChange(e.target.value)}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="created_at:desc">{locale === 'zh' ? '上传时间：新到旧' : 'Upload time: Newest'}</option>
+                <option value="created_at:asc">{locale === 'zh' ? '上传时间：旧到新' : 'Upload time: Oldest'}</option>
+                <option value="updated_at:desc">{locale === 'zh' ? '编辑时间：新到旧' : 'Last edited: Newest'}</option>
+                <option value="updated_at:asc">{locale === 'zh' ? '编辑时间：旧到新' : 'Last edited: Oldest'}</option>
+                <option value="price:desc">{locale === 'zh' ? '价格：高到低' : 'Price: High to Low'}</option>
+                <option value="price:asc">{locale === 'zh' ? '价格：低到高' : 'Price: Low to High'}</option>
+                <option value="name:asc">{locale === 'zh' ? '名称：A-Z' : 'Name: A-Z'}</option>
+                <option value="name:desc">{locale === 'zh' ? '名称：Z-A' : 'Name: Z-A'}</option>
+              </select>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                <FunnelIcon className="h-4 w-4 mr-2" />
+				{t('common.clearFilters', locale === 'zh' ? '清除筛选' : 'Clear Filters')}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Products Table */}
+        <div className="bg-white shadow rounded-lg overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h3 className="text-lg font-medium text-gray-900">
+              {t(
+                'products.page.tableTitle',
+                locale === 'zh' ? '产品（{count}）' : 'Products ({count})',
+                { count: isLoading ? '...' : totalProducts.toLocaleString() }
+              )}
+            </h3>
+          </div>
+
+          {isLoading ? (
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+			  <p className="mt-2 text-sm text-gray-500">{t('products.page.loading', locale === 'zh' ? '正在加载产品...' : 'Loading products...')}</p>
+            </div>
+          ) : error ? (
+            <div className="text-center py-12">
+			  <p className="text-sm text-red-600">{t('products.page.loadFailed', locale === 'zh' ? '加载产品失败，请重试。' : 'Failed to load products. Please try again.')}</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3">
+                    <input type="checkbox" className="h-4 w-4 rounded border-gray-300" onChange={(e)=>toggleSelectAllOnPage(e.target.checked, filteredProducts)} checked={!selectAllResults && selectedIds.length>0 && selectedIds.length===filteredProducts.length} />
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    {t('products.table.product', locale === 'zh' ? '产品' : 'Product')}
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    {t('products.table.category', locale === 'zh' ? '分类' : 'Category')}
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    {t('products.table.price', locale === 'zh' ? '价格' : 'Price')}
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    {t('products.table.stock', locale === 'zh' ? '库存' : 'Stock')}
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    {t('products.table.status', locale === 'zh' ? '状态' : 'Status')}
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    AI SEO
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    {locale === 'zh' ? '编辑时间' : 'Last Edited'}
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    {t('common.actions', locale === 'zh' ? '操作' : 'Actions')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredProducts.map((product) => (
+                  <tr key={product.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-4">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-gray-300"
+                        checked={selectedIds.includes(product.id)}
+                        onChange={(e)=>toggleSelectOne(product.id, e.target.checked)}
+                        disabled={selectAllResults}
+                      />
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="flex-shrink-0 h-12 w-12">
+                          <Image
+                            src={getProductImageUrl(product.image_urls, getDefaultProductImageWithSku(product.sku))}
+                            alt={product.name}
+                            width={48}
+                            height={48}
+                            className="h-12 w-12 rounded-lg bg-gray-50 object-contain p-0.5"
+                            // /uploads is served by nginx -> backend; skip Next image optimizer.
+                            unoptimized={String(getProductImageUrl(product.image_urls, getDefaultProductImageWithSku(product.sku))).startsWith('/uploads/')}
+                          />
+                        </div>
+                        <div className="ml-4">
+                          <div className="text-sm font-medium text-gray-900">
+                            {product.name}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {t('products.field.skuLabel', locale === 'zh' ? 'SKU：' : 'SKU:')} {product.sku}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{product.category.name}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">
+                        {formatCurrency(product.price)}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className={`text-sm font-medium ${
+                        product.stock_quantity > 10 ? 'text-green-600' :
+                        product.stock_quantity > 0 ? 'text-yellow-600' : 'text-red-600'
+                      }`}>
+                        {t('products.stock.units', locale === 'zh' ? '{count} 件' : '{count} units', { count: product.stock_quantity })}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex space-x-2">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          product.is_active
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {product.is_active
+                            ? t('common.active', locale === 'zh' ? '启用' : 'Active')
+                            : t('common.inactive', locale === 'zh' ? '停用' : 'Inactive')}
+                        </span>
+                        {product.is_featured && (
+                          <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                            {t('products.status.featured', locale === 'zh' ? '推荐' : 'Featured')}
+                          </span>
+                        )}
+                        {product.seo_noindex && (
+                          <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-stone-100 text-stone-700">
+                            {locale === 'zh' ? '暂不收录' : 'Noindex'}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {product.ai_seo_status === 'optimized' ? (
+                        <div>
+                          <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">{locale === 'zh' ? 'AI 已优化' : 'AI Optimized'}</span>
+                          {product.ai_seo_optimized_at && <div className="mt-1 text-xs text-gray-400">{new Date(product.ai_seo_optimized_at).toLocaleDateString()}</div>}
+                        </div>
+                      ) : product.ai_seo_status === 'running' ? (
+                        <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-violet-100 text-violet-800">{locale === 'zh' ? 'AI 处理中' : 'AI Processing'}</span>
+                      ) : product.ai_seo_status === 'failed' ? (
+                        <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-rose-100 text-rose-800">{locale === 'zh' ? 'AI 失败' : 'AI Failed'}</span>
+                      ) : (
+                        <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">{locale === 'zh' ? '未 AI 优化' : 'Not AI optimized'}</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <div>{new Date(product.updated_at || product.created_at).toLocaleDateString()}</div>
+                      <div className="text-xs text-gray-400">{new Date(product.updated_at || product.created_at).toLocaleTimeString()}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex justify-end space-x-2">
+                        <Link
+                          href={`/admin/products/${product.id}`}
+                          className="text-blue-600 hover:text-blue-900"
+                        >
+                          <EyeIcon className="h-4 w-4" />
+                        </Link>
+                        <Link
+                          href={`/admin/products/${product.id}/edit?returnTo=${encodeURIComponent(buildListUrl())}`}
+                          className="text-indigo-600 hover:text-indigo-900"
+                          onClick={() => handleEditClick()}
+                        >
+                          <PencilIcon className="h-4 w-4" />
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(product)}
+                          disabled={deleteProductMutation.isPending}
+                          className="text-red-600 hover:text-red-900 disabled:opacity-50"
+                        >
+                          <TrashIcon className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              </table>
+            </div>
+          )}
+
+          {!isLoading && !error && filteredProducts.length === 0 && (
+            <div className="text-center py-12">
+              <PhotoIcon className="mx-auto h-12 w-12 text-gray-400" />
+			  <h3 className="mt-2 text-sm font-medium text-gray-900">{t('products.page.empty', locale === 'zh' ? '没有找到产品' : 'No products found')}</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                {t('products.page.emptyHint', locale === 'zh' ? '从添加一个新产品开始吧。' : 'Get started by adding a new product.')}
+              </p>
+              <div className="mt-6">
+                <Link
+                  href="/admin/products/new"
+                  className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                >
+                  <PlusIcon className="h-4 w-4 mr-2" />
+                  {t('products.new.title', locale === 'zh' ? '新增产品' : 'Add Product')}
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {!isLoading && !error && totalPages > 1 && (
+            <div className="mt-6 flex justify-center">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={handlePageChange}
+                showFirstLast={true}
+                showPageNumbers={true}
+                maxVisiblePages={5}
+              />
+            </div>
+          )}
+
+          {/* Products count info */}
+          {!isLoading && !error && totalProducts > 0 && (
+            <div className="mt-4 text-center text-sm text-gray-500">
+              {t(
+                'common.showingRange',
+                locale === 'zh'
+                  ? '显示第 {from} - {to} 条，共 {total} 个产品'
+                  : 'Showing {from} to {to} of {total} products',
+                {
+                  from: ((currentPage - 1) * pageSize) + 1,
+                  to: Math.min(currentPage * pageSize, totalProducts),
+                  total: totalProducts,
+                }
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      <AIListingJobModal
+        open={showAIListingModal}
+        locale={locale}
+        isAdmin={isAdmin}
+        selectedIds={selectedIds}
+        selectAllResults={selectAllResults}
+        totalProducts={totalProducts}
+        filters={aiListingFilters}
+        onClose={() => setShowAIListingModal(false)}
+        onStarted={(job) => {
+          setShowAIListingModal(false);
+          setSelectedIds([]);
+          setSelectAllResults(false);
+          void startAISEOPolling(job.id);
+        }}
+      />
+      <ListingImportModal
+        open={showListingImport}
+        locale={locale}
+        onClose={() => setShowListingImport(false)}
+        onImported={() => {
+          queryClient.invalidateQueries({ queryKey: queryKeys.products.lists() });
+          queryClient.invalidateQueries({ queryKey: queryKeys.categories.lists() });
+        }}
+      />
+      <MediaPickerModal
+        open={showCategoryImagePicker}
+        onClose={() => setShowCategoryImagePicker(false)}
+        onSelect={handleCategoryImageSelected}
+        multiple={false}
+        title={t('products.bulk.categoryImagePick', locale === 'zh' ? '选择要批量应用到当前品牌/分类的图片' : 'Select the image to apply to current brand/category')}
+        initialFolder={selectedCategory ? '' : categoryImageBrand}
+      />
+    </AdminLayout>
+  );
+}
+
+export default function AdminProductsPage() {
+  function AdminProductsPageFallback() {
+    const { locale, t } = useAdminI18n();
+    return (
+      <div className="flex items-center justify-center py-10">
+        {t('common.loading', locale === 'zh' ? '加载中...' : 'Loading...')}
+      </div>
+    );
+  }
+
+  return (
+	<Suspense fallback={<AdminProductsPageFallback />}>
+      <AdminProductsContent />
+    </Suspense>
+  );
+}

@@ -58,6 +58,46 @@ docker compose --profile internal-nginx up -d nginx   # 监听 ${NGINX_PORT:-300
 两套配置都刻意 **关闭 gzip**：压缩由应用负责（见第 7 节），边缘再压一次只会白耗 CPU，
 还可能和上游的 `Content-Encoding` 打架。
 
+## 3.1 生产实际拓扑（kavten.com）
+
+宿主 `23.19.231.238` 上已经有别的站点占着 3000-3002 / 8080-8082，也已经有
+`stream` 模块按 SNI 分流，所以 kavten 不抢 443：
+
+```
+Cloudflare (proxied, Full)
+  └─ :443 stream --SNI--> 127.0.0.1:8444 (http TLS listener)
+       └─ sites-enabled/kavten.com.conf
+            └─ 127.0.0.1:3010  kavten_frontend (brotli 代理 :3000 -> next :3001)
+            └─ /api/ -> 127.0.0.1:8090  kavten_backend
+```
+
+- 端口：`FRONTEND_PORT=3010`、`BACKEND_PORT=8090`、`NGINX_PORT=3006`（容器内 nginx 默认不开）
+- vhost：`/etc/nginx/sites-enabled/kavten.com.conf` + `snippets/kavten-proxy.conf`
+  （`proxy_set_header` 是数组指令，只要在 location 里设一个就得把全部重述一遍，所以抽成 snippet）
+- `:80` 按 `$http_cf_connecting_ip` 分支：带了 CF 头就直接出页面（兼容 Flexible 模式，
+  否则 CF→源站 http→301 https→CF 死循环），没带就 301 到 https
+- 证书：`acme.sh --issue --dns dns_cf -d kavten.com -d www.kavten.com --keylength ec-256`，
+  再用 `--install-cert --reloadcmd 'systemctl reload nginx'` 挂钩子，续期后自动 reload
+- 上传路径 `/uploads/` 直出容器 30 天缓存，`/api/` 120r/m，`/api/v1/auth/login` 10r/m
+
+## 3.2 踩过的坑：应用层重定向必须用站点 origin
+
+Next standalone 启动时用自己的监听地址（`http://localhost:3001`）拼 `request.url`，
+`x-forwarded-proto: https` 只会改协议、不会改主机名，于是 middleware 里所有
+`request.nextUrl.clone()` / `new URL(path, request.url)` 生成的重定向都变成
+`Location: https://localhost:3001/...`——真实浏览器和 Googlebot 都会失败。
+
+- 重定向统一走 `publicRedirect()`（middleware.ts），它把 URL 重新锚到 `SITE_URL`
+- 同理，middleware 里不要用绝对 URL 做 `rewrite`：那会让 Next 走 HTTP 代理去请求
+  自己，配上 `https` 就是 `EPROTO: wrong version number` 的 500
+  （`/sitemap-products/:page.xml` 因此改为纯 `next.config.ts` 的 `afterFiles` rewrite）
+
+上线自检：
+
+```bash
+node scripts/verify_redirects.mjs https://kavten.com   # REDIRECT_CHECK_OK
+```
+
 ## 4. DNS 与 TLS
 
 | 记录 | 值 |

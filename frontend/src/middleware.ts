@@ -16,6 +16,7 @@ import {
   stripLocaleFromPathname,
 } from '@/lib/i18n/config';
 import { PUBLIC_CONTENT_SIGNAL_POLICY } from '@/lib/robots';
+import { getSiteUrl } from '@/lib/url';
 
 // Define protected routes
 const protectedRoutes = ['/admin'];
@@ -159,6 +160,19 @@ const EDITABLE_PAGE_PATHS = new Set(['/about', '/contact']);
 // Unprefixed public URLs are mapped to app/[locale] with locale "en" by the
 // rewrites in next.config.ts, not here: Next only treats a request as ISR when
 // the rewrite is a config rewrite (middleware rewrites always render dynamically).
+// The standalone server builds `request.url` from its own bind address
+// (http://localhost:3001) and only lets `x-forwarded-proto` change the scheme,
+// so behind the TLS-terminating proxy every middleware redirect pointed at
+// https://localhost:3001 — a dead host for both browsers and Googlebot. Rebase
+// every redirect on the configured public origin instead.
+function publicRedirect(url: URL, status?: number): NextResponse {
+  const site = new URL(getSiteUrl());
+  const target = url.origin === site.origin
+    ? url
+    : new URL(`${url.pathname}${url.search}`, site);
+  return NextResponse.redirect(target, status);
+}
+
 export async function middleware(request: NextRequest) {
   const rawPathname = request.nextUrl.pathname;
   // Defensive: never re-process the preview URL this middleware rewrote.
@@ -168,7 +182,7 @@ export async function middleware(request: NextRequest) {
   if (rawPathname === '/en' || rawPathname.startsWith('/en/')) {
     const url = request.nextUrl.clone();
     url.pathname = rawPathname.slice(3) || '/';
-    return NextResponse.redirect(url, 308);
+    return publicRedirect(url, 308);
   }
   // The storefront is English-only. Retired locale prefixes are permanently
   // redirected to the English URL so any previously indexed or linked
@@ -180,7 +194,7 @@ export async function middleware(request: NextRequest) {
     const remainder = rawPathname.slice(retiredLocale.length + 1);
     url.pathname = remainder && remainder !== '/' ? remainder : '/';
     if (url.pathname === '/index') url.pathname = '/';
-    return NextResponse.redirect(url, 301);
+    return publicRedirect(url, 301);
   }
   const pathLocale = getLocaleFromPathname(rawPathname);
   const pathname = stripLocaleFromPathname(rawPathname);
@@ -191,12 +205,12 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     const target = pathname.slice(PAGE_PREVIEW_PATH.length) || '/';
     url.pathname = localizePublicPath(EDITABLE_PAGE_PATHS.has(target) ? target : '/', locale);
-    return NextResponse.redirect(url, 307);
+    return publicRedirect(url, 307);
   }
   if (pathname === HOMEPAGE_PREVIEW_PATH || pathname.startsWith(`${HOMEPAGE_PREVIEW_PATH}/`)) {
     const url = request.nextUrl.clone();
     url.pathname = localizePublicPath('/', locale);
-    return NextResponse.redirect(url, 307);
+    return publicRedirect(url, 307);
   }
   // The admin session JWT lives in an HttpOnly cookie. Next middleware runs on
   // the server and can still read it, so route protection keeps working even
@@ -211,13 +225,13 @@ export async function middleware(request: NextRequest) {
   if (requestedLocale && isPublicLocale(requestedLocale) && !ACTIVE_PUBLIC_LOCALES.includes(requestedLocale) && isLocalizablePublicPath(pathname)) {
     const url = request.nextUrl.clone();
     url.searchParams.delete(PUBLIC_LOCALE_SELECTION_PARAM);
-    return NextResponse.redirect(url, 307);
+    return publicRedirect(url, 307);
   }
   if (isPublicLocale(requestedLocale) && ACTIVE_PUBLIC_LOCALES.includes(requestedLocale) && isLocalizablePublicPath(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = localizePublicPath(pathname, requestedLocale);
     url.searchParams.delete(PUBLIC_LOCALE_SELECTION_PARAM);
-    const response = NextResponse.redirect(url, 307);
+    const response = publicRedirect(url, 307);
     saveLocalePreference(response, request, requestedLocale);
     preventLocaleRedirectCaching(response);
     return response;
@@ -226,7 +240,7 @@ export async function middleware(request: NextRequest) {
   if (pathLocale && !isLocalizablePublicPath(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = pathname;
-    return NextResponse.redirect(url, 308);
+    return publicRedirect(url, 308);
   }
 
 
@@ -249,7 +263,7 @@ export async function middleware(request: NextRequest) {
   ) {
     const url = request.nextUrl.clone();
     url.pathname = localizePublicPath(pathname, automaticLocale);
-    const response = NextResponse.redirect(url, 307);
+    const response = publicRedirect(url, 307);
     saveLocalePreference(response, request, preferredLocale);
     preventLocaleRedirectCaching(response);
     return response;
@@ -265,7 +279,7 @@ export async function middleware(request: NextRequest) {
     canonicalUrl.protocol = 'https';
     canonicalUrl.hostname = canonicalHostname;
     canonicalUrl.port = '';
-    return NextResponse.redirect(canonicalUrl, 301);
+    return publicRedirect(canonicalUrl, 301);
   }
 
   const indexNowKeyMatch = pathname.match(/^\/([A-Za-z0-9_-]{8,128})\.txt$/);
@@ -329,17 +343,13 @@ export async function middleware(request: NextRequest) {
   if (legacySitemapMatch) {
     const url = request.nextUrl.clone();
     url.pathname = `/sitemap-products/${legacySitemapMatch[1]}.xml`;
-    return NextResponse.redirect(url, 301);
+    return publicRedirect(url, 301);
   }
 
-  // Serve /sitemap-products/:page.xml by rewriting to an internal route
-  // /sitemap-products/1.xml -> /sitemap-products/1 (keeps .xml in the URL)
-  const productsSitemapMatch = pathname.match(/^\/sitemap-products\/(\d+)\.xml$/);
-  if (productsSitemapMatch) {
-    const url = request.nextUrl.clone();
-    url.pathname = `/sitemap-products/${productsSitemapMatch[1]}`;
-    return NextResponse.rewrite(url);
-  }
+  // /sitemap-products/:page.xml is served by the next.config.ts `afterFiles`
+  // rewrite. Doing it here rewrote to an absolute URL built from the server's
+  // own bind address, which then went through Next's HTTP proxy to
+  // https://localhost:3001 and failed with EPROTO (500 on every product sitemap).
 
   // Handle product URL redirects for SEO-friendly URLs
   // Redirect old format /products/[sku] to new format /products/[sku]-[slug]
@@ -361,7 +371,7 @@ export async function middleware(request: NextRequest) {
   if (firstSegment && firstSegment !== firstSegment.toLowerCase() && CASE_FOLD_FIRST_SEGMENTS.has(firstSegment.toLowerCase())) {
     const url = request.nextUrl.clone();
     url.pathname = localizePublicPath(pathname.replace(`/${firstSegment}`, `/${firstSegment.toLowerCase()}`), locale);
-    return NextResponse.redirect(url, 301);
+    return publicRedirect(url, 301);
   }
 
   // Canonicalize legacy CISON-prefixed product URLs to the shared product slug rule.
@@ -372,7 +382,7 @@ export async function middleware(request: NextRequest) {
   if (/^\/products\/CISON-/.test(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = localizePublicPath(pathname.replace(/^\/products\/CISON-/, '/products/'), locale);
-    return NextResponse.redirect(url, 308);
+    return publicRedirect(url, 308);
   }
 
   // Check if the current path is a protected route
@@ -394,9 +404,9 @@ export async function middleware(request: NextRequest) {
   // half-session state — redirect to login and drop the stale cookies so the
   // login page is reachable immediately.
   if (isProtectedRoute && (!token || isBrokenAdminSession)) {
-    const loginUrl = new URL('/admin/login', request.url);
+    const loginUrl = new URL('/admin/login', getSiteUrl());
     loginUrl.searchParams.set('redirect', pathname);
-    const redirectResponse = NextResponse.redirect(loginUrl);
+    const redirectResponse = publicRedirect(loginUrl);
     if (rawToken) {
       redirectResponse.cookies.delete('admin_token');
       redirectResponse.cookies.delete('auth_session');
@@ -409,7 +419,7 @@ export async function middleware(request: NextRequest) {
   // redirect to admin dashboard. In the broken half-session case fall through
   // instead so the login page renders (stale cookies are cleared below).
   if (isAuthRoute && token && !isBrokenAdminSession) {
-    return NextResponse.redirect(new URL('/admin', request.url));
+    return publicRedirect(new URL('/admin', getSiteUrl()));
   }
 
   const isHomepagePreview = pathname === '/' && request.nextUrl.searchParams.get('admin_preview') === '1';

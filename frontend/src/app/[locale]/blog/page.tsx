@@ -2,10 +2,10 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import { getSiteUrl } from '@/lib/url';
-import { SITE_NAME, withSiteName } from '@/lib/seo';
+import { SITE_NAME, ensureMetaDescription, withSiteName } from '@/lib/seo';
 import { NewsService } from '@/services/news.service';
 import NewsPageClient from '@/app/[locale]/news/NewsPageClient';
-import { getLocalizedMetadataPathsWithQuery, resolveRouteLocale, type LocaleRouteParams } from '@/lib/i18n/server';
+import { buildPublicRobots, getLocalizedMetadataPathsWithQuery, resolveRouteLocale, type LocaleRouteParams } from '@/lib/i18n/server';
 import { localizeArticleOrDefault } from '@/lib/i18n/content';
 import { localizePublicPath } from '@/lib/i18n/config';
 import { translatePublicMessage } from '@/lib/i18n/messages';
@@ -17,16 +17,18 @@ export async function generateMetadata({ params: routeParams, searchParams }: { 
   const pageQuery = page > 1 ? `page=${page}` : '';
   const { locale, canonical: url, languages } = await getLocalizedMetadataPathsWithQuery(await resolveRouteLocale(routeParams), '/blog', pageQuery);
   const title = search ? `Search: ${search} - Blog` : `${translatePublicMessage(locale, 'news.blogTitle')}${page > 1 ? ` - Page ${page}` : ''}`;
-  const description = search
-    ? `Search results for "${search}" in the Kavten model engine blog.`
-    : translatePublicMessage(locale, 'news.blogDescription');
+  const description = ensureMetaDescription(
+    search
+      ? `Search results for "${search}" in the Kavten model engine blog.`
+      : translatePublicMessage(locale, 'news.blogDescription'),
+  );
   return {
     title,
     description,
     keywords: ['model engine blog', 'CNC troubleshooting', 'PLC and HMI guides', 'servo drive repair', 'engine parts sourcing', 'Engine ENJOMOR TOYAN ABB technical articles', search].filter(Boolean).join(', '),
     // Paged archives repeat page 1's headlines. They stay crawlable so the
     // article links are followed, but they are not indexable pages of their own.
-    robots: search || page > 1 ? { index: false, follow: true } : { index: true, follow: true },
+    robots: search || page > 1 ? { index: false, follow: true } : buildPublicRobots(locale),
     alternates: { canonical: url, languages },
     openGraph: { title: withSiteName(title), description, type: 'website', url },
     twitter: { card: 'summary_large_image', title: withSiteName(title), description },

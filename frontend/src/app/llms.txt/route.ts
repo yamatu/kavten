@@ -39,6 +39,7 @@ export async function GET() {
     '- Product pages live at `/products/{product-slug}` and start with a "Key facts" box: power source, build (kit or assembled), recommended age, number of parts, size and weight, followed by the full description, specifications and a product FAQ.',
     '- Category pages live at `/categories/{category-path}` and include a buying guide and FAQ for that type of engine or model.',
     '- Gas and nitro engines burn fuel; Stirling and vacuum engines run on heat; steam engines need a boiler; many metal assembly kits are electric-driven display models. Each product page states which applies.',
+    `- Owner-written build logs, first-start notes and fixes live in the Builders’ Workshop at ${baseUrl}/community; anyone can start a thread at ${baseUrl}/community/share.`,
     `- Full product list: ${baseUrl}/sitemap.xml`,
     '',
     '## Categories',

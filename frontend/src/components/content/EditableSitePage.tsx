@@ -29,10 +29,24 @@ export async function getEditablePage(pageKey: string) {
   }
 }
 
+// A policy page named in the CMS usually carries a two-word nav label. On its
+// own the result line is then ~23 characters, which reads as a placeholder next
+// to competing results, so short stored titles are replaced by a descriptive one.
+// Longer titles an editor wrote are left untouched.
+const SERP_TITLES: Record<string, string> = {
+  'privacy': 'Privacy Policy: What Kavten Stores & Why',
+  'terms': 'Terms of Service: Orders, Payment & Returns',
+  'warranty-policy': 'Warranty Policy & Repair Coverage',
+  'shipping-policy': 'Shipping Policy: Times, Costs & Customs',
+  'returns': 'Returns Policy: Refunds & Exchanges',
+};
+
 export async function buildEditablePageMetadata(pageKey: string, locale: PublicLocale): Promise<Metadata> {
   const page = await getEditablePage(pageKey);
   if (!page) return { robots: { index: false, follow: false } };
-  const metadata = buildStaticPageMetadata(`/${pageKey}`, 'meta_title' in page && page.meta_title ? page.meta_title : page.title, 'meta_description' in page && page.meta_description ? page.meta_description : page.summary, 'meta_keywords' in page ? page.meta_keywords : undefined);
+  const storedTitle = ('meta_title' in page && page.meta_title ? page.meta_title : page.title) || '';
+  const serpTitle = storedTitle.length < 22 ? (SERP_TITLES[pageKey] ?? storedTitle) : storedTitle;
+  const metadata = buildStaticPageMetadata(`/${pageKey}`, serpTitle, 'meta_description' in page && page.meta_description ? page.meta_description : page.summary, 'meta_keywords' in page ? page.meta_keywords : undefined);
   const { canonical, languages } = await getLocalizedMetadataPaths(locale, `/${pageKey}`);
   return {
     ...metadata,

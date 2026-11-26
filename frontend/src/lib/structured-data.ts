@@ -54,6 +54,10 @@ export function generateOrganizationSchema(sameAs: string[] = []) {
       "email": "flora@kavten.com",
       "availableLanguage": ["en", "zh"]
     },
+    // Checkout runs through PayPal only, and every price on the site is USD, so
+    // both are stated as facts rather than left for an answer engine to guess.
+    "paymentAccepted": "PayPal",
+    "currenciesAccepted": "USD",
     ...(socialProfiles.length > 0 ? { "sameAs": socialProfiles } : {})
   };
 }

@@ -5,7 +5,7 @@ import { getSiteUrl } from '@/lib/url';
 import { buildHomeFaqEntries } from '@/lib/faq-content';
 import { getCommercePolicyCached } from '@/services/commerce-policy.server';
 import { buildStaticPageMetadata, ensureMetaDescription } from '@/lib/seo';
-import { getLocalizedMetadataPaths, resolveRouteLocale, type LocaleRouteParams } from '@/lib/i18n/server';
+import { buildPublicRobots, getLocalizedMetadataPaths, resolveRouteLocale, type LocaleRouteParams } from '@/lib/i18n/server';
 import { localizePublicPath } from '@/lib/i18n/config';
 import { translatePublicMessage } from '@/lib/i18n/messages';
 
@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: { params: LocaleRouteParams }
     alternates: { canonical, languages },
     openGraph: { title: meta.openGraph?.title || title, description: padded, type: 'website', url: canonical },
     twitter: { card: 'summary_large_image', title: meta.twitter?.title || title, description: padded },
-    robots: { index: true, follow: true },
+    robots: buildPublicRobots(locale),
   };
 }
 

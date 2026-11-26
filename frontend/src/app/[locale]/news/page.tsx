@@ -2,10 +2,10 @@ import { Metadata } from 'next';
 import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import { getSiteUrl } from '@/lib/url';
-import { SITE_NAME, withSiteName } from '@/lib/seo';
+import { SITE_NAME, ensureMetaDescription, withSiteName } from '@/lib/seo';
 import { NewsService } from '@/services/news.service';
 import NewsPageClient from './NewsPageClient';
-import { getLocalizedMetadataPathsWithQuery, resolveRouteLocale, type LocaleRouteParams } from '@/lib/i18n/server';
+import { buildPublicRobots, getLocalizedMetadataPathsWithQuery, resolveRouteLocale, type LocaleRouteParams } from '@/lib/i18n/server';
 import { localizeArticleOrDefault } from '@/lib/i18n/content';
 import { localizePublicPath } from '@/lib/i18n/config';
 import { translatePublicMessage } from '@/lib/i18n/messages';
@@ -13,26 +13,28 @@ import { translatePublicMessage } from '@/lib/i18n/messages';
 export async function generateMetadata({ params: routeParams, searchParams }: { params: LocaleRouteParams; searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }): Promise<Metadata> {
   const params = await searchParams;
-  const search = params.search;
+  const search = typeof params.search === 'string' ? params.search.trim() : '';
   const page = Math.max(1, Number.parseInt(typeof params.page === 'string' ? params.page : '1', 10) || 1);
   const pageQuery = page > 1 ? `page=${page}` : '';
   const { locale, canonical: canonicalUrl, languages } = await getLocalizedMetadataPathsWithQuery(await resolveRouteLocale(routeParams), '/news', pageQuery);
 
-  let title = `${translatePublicMessage(locale, 'news.title')}${page > 1 ? ` - Page ${page}` : ''}`;
-  let description = translatePublicMessage(locale, 'news.description');
+  // The visible heading on the page stays "Company News"; this longer SERP
+  // title carries the subject words the short heading alone does not.
+  let title = `Model Engine News & New Releases${page > 1 ? ` - Page ${page}` : ''}`;
+  let description = ensureMetaDescription(translatePublicMessage(locale, 'news.description'));
 
   if (search) {
     title = `Search: ${search} - News`;
     description = `Search results for "${search}" in news and articles.`;
   }
 
-  const hasSearch = typeof search === 'string' && search.trim().length > 0;
+  const hasSearch = search.length > 0;
   return {
     title,
     description,
     // Paged archives repeat page 1's headlines. They stay crawlable so the
     // article links are followed, but they are not indexable pages of their own.
-    robots: hasSearch || page > 1 ? { index: false, follow: true } : { index: true, follow: true },
+    robots: hasSearch || page > 1 ? { index: false, follow: true } : buildPublicRobots(locale),
     keywords: ['Engine news', 'CNC articles', 'model engine', 'technical blog', search].filter(Boolean).join(', '),
     openGraph: {
       title: withSiteName(title),

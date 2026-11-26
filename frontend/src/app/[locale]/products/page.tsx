@@ -9,7 +9,7 @@ import { withSiteName } from '@/lib/seo';
 import { productPathSegment } from '@/lib/utils';
 import ProductsPageClient from './ProductsPageClient';
 import ScrollRestorer from '@/components/common/ScrollRestorer';
-import { getLocalizedMetadataPaths, getLocalizedMetadataPathsWithQuery, resolveRouteLocale, type LocaleRouteParams } from '@/lib/i18n/server';
+import { buildPublicRobots, getLocalizedMetadataPaths, getLocalizedMetadataPathsWithQuery, resolveRouteLocale, type LocaleRouteParams } from '@/lib/i18n/server';
 import { normalizeProductPageSize } from '@/lib/product-listing';
 import { translatePublicMessage } from '@/lib/i18n/messages';
 import { localizeCategoryContent, localizeProductContent } from '@/lib/i18n/content';
@@ -160,7 +160,7 @@ export async function generateMetadata({ params: routeParams, searchParams }: {
       return {
         title,
         description,
-        robots: { index: true, follow: true },
+        robots: buildPublicRobots(requestLocale),
         keywords: [
           'model engines', 'model engine kits', 'Stirling engine', 'steam engine model',
           'RC cars', 'engine model kit', category.name,
@@ -189,7 +189,7 @@ export async function generateMetadata({ params: routeParams, searchParams }: {
       return {
         title,
         description,
-        robots: { index: true, follow: true },
+        robots: buildPublicRobots(requestLocale),
         keywords: `${brandCategory.name} model engines, ${brandCategory.name} engine kits, model engine parts, Kavten`,
         openGraph: { title: withSiteName(title), description, type: 'website', url: brandMetadataPaths.canonical },
         alternates: { canonical: brandMetadataPaths.canonical, languages: brandMetadataPaths.languages },
@@ -215,7 +215,7 @@ export async function generateMetadata({ params: routeParams, searchParams }: {
     description,
     robots: hasSearch || !!brand || pageSize !== 48 || isDeepPage
       ? { index: false, follow: true }
-      : { index: true, follow: true },
+      : buildPublicRobots(requestLocale),
     keywords: [
       'model engines', 'model engine kits', 'Stirling engine', 'steam engine model',
       'RC cars', 'engine model kit', searchQuery,

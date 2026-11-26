@@ -8,7 +8,7 @@ import { CategoryService } from '@/services/category.service';
 import { getStoreProducts } from '@/services/storefront.server';
 import { getSiteUrl } from '@/lib/url';
 import { withSiteName } from '@/lib/seo';
-import { getLocalizedMetadataPaths, resolveRouteLocale } from '@/lib/i18n/server';
+import { buildPublicRobots, getLocalizedMetadataPaths, resolveRouteLocale } from '@/lib/i18n/server';
 import { getAvailableTranslationLocales, hasTranslationForLocale, localizeCategoryContent, localizeProductContent } from '@/lib/i18n/content';
 import { productPathSegment } from '@/lib/utils';
 import { localizePublicPath, type PublicLocale } from '@/lib/i18n/config';
@@ -79,10 +79,11 @@ export async function generateMetadata({ params, searchParams }: CategoryPathPag
     const title = seo?.title || category.name;
     const description = seo?.description || category.description;
     const image = absoluteUrl(baseUrl, category.image_url);
+    const indexable = hasRequestedTranslation && !isDeepPage && !hasFilterParams;
     return {
       title,
       description,
-      robots: { index: hasRequestedTranslation && !isDeepPage && !hasFilterParams, follow: true },
+      robots: indexable ? buildPublicRobots(locale) : { index: false, follow: true },
       openGraph: {
         title: withSiteName(title),
         description,

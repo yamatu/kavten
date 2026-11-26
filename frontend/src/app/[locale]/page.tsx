@@ -3,7 +3,7 @@ import HomePage, { getHomeDescription, getHomeTitle } from '@/components/home/Ho
 import { getSiteUrl } from '@/lib/url';
 import { SITE_NAME } from '@/lib/seo';
 import { getLocaleConfig } from '@/lib/i18n/config';
-import { getLocalizedMetadataPaths, resolveRouteLocale, type LocaleRouteParams } from '@/lib/i18n/server';
+import { buildPublicRobots, getLocalizedMetadataPaths, resolveRouteLocale, type LocaleRouteParams } from '@/lib/i18n/server';
 
 export const revalidate = 300;
 
@@ -21,11 +21,9 @@ export async function generateMetadata({ params }: { params: LocaleRouteParams }
     title: { absolute: title },
     description,
     alternates: { canonical, languages },
-    robots: locale === 'en' ? undefined : {
-      index: false,
-      follow: true,
-      googleBot: { index: false, follow: true },
-    },
+    // Declaring robots at all replaces the layout's value, so the layout
+    // default (including max-image-preview:large) has to be restated here.
+    robots: buildPublicRobots(locale),
     openGraph: {
       type: 'website',
       locale: getLocaleConfig(locale).hreflang.replace('-', '_'),

@@ -205,8 +205,8 @@ export const CATEGORY_SEO: Record<string, CategorySeo> = {
     ],
   },
   'low-temperature-stirling': {
-    title: 'Low Temperature Stirling Engines – Coffee Cup Engines',
-    description: 'Low temperature difference Stirling engines that run on a cup of hot water, coffee or the warmth of your hand. No flame needed — ideal desk toys and STEM gifts.',
+    title: 'Low Temperature Stirling Engines – Coffee Cup',
+    description: 'LTD Stirling engines that run on a cup of hot water, coffee or the warmth of your hand. No flame, no fuel — safe desk toys and STEM gifts.',
     h1: 'Low Temperature Stirling Engines',
     intro: [
       'Low temperature difference (LTD) Stirling engines run on a very small temperature gap. Place one on a mug of hot coffee or warm water — or sometimes just in the palm of your hand — and the flywheel begins to turn.',

@@ -1,6 +1,11 @@
 import Link from 'next/link';
 import PublicLayout from '@/components/layout/PublicLayout';
 
+// No metadata here on purpose: Next injects `<meta name="robots" content="noindex">`
+// for any not-found render, and the [locale] layout adds the site-wide robots
+// tag. Declaring robots again here would only add a third tag, and when the
+// directives conflict crawlers apply the most restrictive one — noindex — which
+// is already what a 404 should say.
 export default function NotFound() {
   return (
     <PublicLayout>

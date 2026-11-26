@@ -4,8 +4,8 @@ import PublicLayout from '@/components/layout/PublicLayout';
 import MarkdownContent from '@/components/content/MarkdownContent';
 import { generateBreadcrumbSchema } from '@/lib/structured-data';
 import { getSiteUrl } from '@/lib/url';
-import { ensureMetaDescription } from '@/lib/seo';
-import { getLocalizedMetadataPaths, resolveRouteLocale } from '@/lib/i18n/server';
+import { ensureMetaDescription, withSiteName } from '@/lib/seo';
+import { buildPublicRobots, getLocalizedMetadataPaths, resolveRouteLocale } from '@/lib/i18n/server';
 import { localizePublicPath } from '@/lib/i18n/config';
 import { communityCategory, formatCommunityDate } from '@/lib/community';
 import { getCommunityPost } from '@/services/community.server';
@@ -37,7 +37,9 @@ export async function generateMetadata({ params }: { params: RouteParams }): Pro
   const category = communityCategory(post.category);
 
   return {
-    title: post.title,
+    // Thread titles are user-submitted, so the suffix is only appended when the
+    // whole line still fits in a SERP; otherwise the headline wins.
+    title: { absolute: withSiteName(post.title) },
     description,
     keywords: [
       ...(post.tag_list || []),
@@ -46,10 +48,10 @@ export async function generateMetadata({ params }: { params: RouteParams }): Pro
       'kavten community',
     ].filter(Boolean).join(', '),
     alternates: { canonical, languages },
-    robots: { index: true, follow: true },
+    robots: buildPublicRobots(locale),
     openGraph: {
       type: 'article',
-      title: post.title,
+      title: withSiteName(post.title),
       description,
       url: canonical,
       publishedTime: post.created_at,
@@ -61,7 +63,7 @@ export async function generateMetadata({ params }: { params: RouteParams }): Pro
     },
     twitter: {
       card: images?.length ? 'summary_large_image' : 'summary',
-      title: post.title,
+      title: withSiteName(post.title),
       description,
       images: images?.length ? images : undefined,
     },

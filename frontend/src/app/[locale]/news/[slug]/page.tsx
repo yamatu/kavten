@@ -1,10 +1,10 @@
 import { Metadata } from 'next';
 import { getSiteUrl } from '@/lib/url';
-import { SITE_NAME, withSiteName, withoutSiteNameSuffix } from '@/lib/seo';
+import { SITE_NAME, ensureMetaDescription, withSiteName, withoutSiteNameSuffix } from '@/lib/seo';
 import { NewsService } from '@/services/news.service';
 import { getArticleBySlug } from '@/services/news.server';
 import ArticleDetailClient from './ArticleDetailClient';
-import { getLocalizedMetadataPaths, resolveRouteLocale } from '@/lib/i18n/server';
+import { buildPublicRobots, getLocalizedMetadataPaths, resolveRouteLocale } from '@/lib/i18n/server';
 import {
   getAvailableTranslationLocales,
   hasTranslationForLocale,
@@ -62,10 +62,11 @@ export async function generateMetadata({
 
   const metaTitle = withoutSiteNameSuffix((article.meta_title || '').trim() || article.title);
   const socialTitle = withSiteName(metaTitle);
-  const metaDescription =
+  const metaDescription = ensureMetaDescription(
     (article.meta_description || '').trim() ||
-    article.summary ||
-    `${article.title} - Read the latest from Kavten.`;
+      article.summary ||
+      `${article.title} - Read the latest from Kavten.`,
+  );
   const metaKeywords =
     (article.meta_keywords || '').trim() ||
     [article.title, 'model engine', 'CNC parts', 'PLC HMI drives', 'automation news'].join(', ');
@@ -74,10 +75,12 @@ export async function generateMetadata({
 
   const canonical = hasRequestedTranslation ? canonicalUrl : `${getSiteUrl()}${publicPath}`;
   return {
-    title: metaTitle,
+    // The suffix is appended only while the line still fits a SERP, so a long
+    // editor headline keeps its own words instead of being cut.
+    title: { absolute: socialTitle },
     description: metaDescription,
     keywords: metaKeywords,
-    robots: { index: hasRequestedTranslation, follow: true, 'max-image-preview': 'large' },
+    robots: hasRequestedTranslation ? buildPublicRobots(locale) : { index: false, follow: true },
     openGraph: {
       title: socialTitle,
       description: metaDescription,

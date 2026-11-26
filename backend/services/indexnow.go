@@ -396,6 +396,7 @@ func BuildDefaultIndexNowURLs(siteURL string) []string {
 		base + "/repair-request",
 		base + "/news",
 		base + "/blog",
+		base + "/community",
 		base + "/about",
 		base + "/contact",
 		base + "/faq",
@@ -411,6 +412,7 @@ func BuildDefaultIndexNowURLs(siteURL string) []string {
 		base + "/sitemap-categories.xml",
 		base + "/sitemap-news.xml",
 		base + "/sitemap-blog.xml",
+		base + "/sitemap-community.xml",
 	}
 }
 

@@ -34,7 +34,9 @@ func TestCatalogBrandAndTextMapping(t *testing.T) {
 	if actual := mapCatalogBrand("kavten", options.BrandMap); actual != "Vcocnc" {
 		t.Fatalf("mapped brand = %q", actual)
 	}
-	actual := replaceCatalogText("ViBoCnC support: sales@kavten.com", options.TextReplacements)
+	// The input has to start with the literal brand text, otherwise the second
+	// replacement rule never matches and the assertion below proves nothing.
+	actual := replaceCatalogText("Kavten support: sales@kavten.com", options.TextReplacements)
 	if actual != "Vcocnc support: sales@vcocncspare.com" {
 		t.Fatalf("replacement result = %q", actual)
 	}

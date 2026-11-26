@@ -32,6 +32,15 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ['@heroicons/react', 'lucide-react', 'react-icons'],
   },
 
+  // Next streams metadata for dynamic pages: <title> and <link rel="canonical">
+  // are then appended to the body and hoisted by React on the client. Google
+  // only honours rel=canonical inside <head>, and raw-HTML crawlers (Bing,
+  // Baidu, SEO tools) never run the hoisting script, so /products shipped with
+  // no canonical at all for anything but the rendered DOM. Matching every UA
+  // makes metadata blocking again: it resolves in ~80ms on this page, so the
+  // cost is negligible next to losing the canonical.
+  htmlLimitedBots: /.*/,
+
   // Silence workspace root inference warning when monorepo-like structure exists
   outputFileTracingRoot: path.join(__dirname, '..'),
 

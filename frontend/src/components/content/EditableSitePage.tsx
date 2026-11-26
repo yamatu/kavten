@@ -7,6 +7,8 @@ import MarkdownContent from '@/components/content/MarkdownContent';
 import { SitePageService } from '@/services/site-page.service';
 import { getSitePageDefault } from '@/lib/site-page-defaults';
 import { buildStaticPageMetadata } from '@/lib/seo';
+import { generateBreadcrumbSchema } from '@/lib/structured-data';
+import { getSiteUrl } from '@/lib/url';
 import { getLocalizedMetadataPaths } from '@/lib/i18n/server';
 import { localizePublicPath, type PublicLocale } from '@/lib/i18n/config';
 import { translatePublicMessage } from '@/lib/i18n/messages';
@@ -43,7 +45,34 @@ export default async function EditableSitePage({ pageKey, locale }: { pageKey: s
   const page = await getEditablePage(pageKey);
   if (!page) notFound();
   const updatedAt = 'updated_at' in page ? page.updated_at : undefined;
+  // Policy pages carried no structured data at all, so they were ineligible for
+  // the breadcrumb trail that every other public template emits.
+  const baseUrl = getSiteUrl();
+  const pageUrl = `${baseUrl}${localizePublicPath(`/${pageKey}`, locale)}`;
+  const schema = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      generateBreadcrumbSchema([
+        { name: translatePublicMessage(locale, 'common.home'), url: `${baseUrl}${localizePublicPath('/', locale)}` },
+        { name: page.title, url: pageUrl },
+      ]),
+      {
+        '@type': 'WebPage',
+        '@id': pageUrl,
+        url: pageUrl,
+        name: page.title,
+        description: page.summary || undefined,
+        inLanguage: locale,
+        ...(updatedAt ? { dateModified: new Date(updatedAt).toISOString() } : {}),
+        isPartOf: { '@type': 'WebSite', name: 'Kavten', url: baseUrl },
+      },
+    ],
+  };
   return <PublicLayout>
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema).replace(/</g, '\\u003c') }}
+    />
     <main className="min-h-screen bg-gray-50 py-10 sm:py-14">
       <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
         <nav className="mb-7 text-sm text-gray-500"><Link href={localizePublicPath('/', locale)} className="hover:text-blue-700">{translatePublicMessage(locale, 'common.home')}</Link><span className="mx-2">/</span><span>{page.title}</span></nav>

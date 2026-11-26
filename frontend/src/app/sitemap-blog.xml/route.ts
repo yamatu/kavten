@@ -4,11 +4,11 @@ import { getAllPublishedArticles } from '@/lib/article-sitemap';
 import type { Article } from '@/types';
 import { renderLocalizedSitemap } from '@/lib/i18n/sitemap';
 import { getAvailableTranslationLocales } from '@/lib/i18n/content';
-import { PUBLIC_LOCALES } from '@/lib/i18n/config';
+import { ACTIVE_PUBLIC_LOCALES } from '@/lib/i18n/config';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 3600;
-const ALL_PUBLIC_LOCALES = PUBLIC_LOCALES.map((locale) => locale.code);
+const ALL_PUBLIC_LOCALES = [...ACTIVE_PUBLIC_LOCALES];
 
 function latestArticleModifiedAt(articles: Article[]): string | undefined {
   const timestamps = articles

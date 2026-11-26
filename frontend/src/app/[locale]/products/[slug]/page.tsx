@@ -1,5 +1,5 @@
 import { Metadata } from 'next';
-import { getProductBySkuCached, searchFirstProduct } from '@/services/product.server';
+import { getProductBySkuCached, getProductSlugRedirectCached, searchFirstProduct } from '@/services/product.server';
 import { getCommercePolicyCached } from '@/services/commerce-policy.server';
 import { getSiteUrl } from '@/lib/url';
 import { withSiteName, withoutSiteNameSuffix } from '@/lib/seo';
@@ -9,7 +9,7 @@ import { CategoryService } from '@/services/category.service';
 import { withoutGeneratedContent } from '@/lib/product-content';
 import { ProductService } from '@/services/product.service';
 import ProductDetailClient from './ProductDetailClient';
-import { permanentRedirect, redirect, notFound } from 'next/navigation';
+import { permanentRedirect, notFound } from 'next/navigation';
 import { getLocalizedMetadataPaths, resolveRouteLocale } from '@/lib/i18n/server';
 import {
   getAvailableTranslationLocales,
@@ -119,11 +119,15 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   try {
     const { slug } = await params;
     const locale = await resolveRouteLocale(params);
-    const sku = slugToSku(slug);
 
     let product: Product | null = null;
     try {
-      product = (sku ? await getProductBySkuCached(sku) : null) || await searchFirstProduct(slug);
+      // A renamed listing answers with its current slug; metadata must describe
+      // the live product, not the retired URL.
+      const effectiveSlug = (await getProductSlugRedirectCached(slug)) || slug;
+      const effectiveSku = slugToSku(effectiveSlug);
+      product = effectiveSku ? await getProductBySkuCached(effectiveSku) : null;
+      product = product || (await searchFirstProduct(effectiveSlug));
     } catch {}
 
     if (!product) {
@@ -236,8 +240,16 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
 
   // Backend errors propagate so ISR keeps serving the last good page instead
   // of caching a 404.
-  let initialProduct: Product | null =
-    (sku ? await getProductBySkuCached(sku) : null) || await searchFirstProduct(slug);
+  // A retired slug (renamed listing, or a duplicate batch that was consolidated)
+  // is a permanent move: 301 to the live URL so the old address keeps its value.
+  // Resolved before any fuzzy lookup so an old URL never lands on a lookalike.
+  const redirectedSlug = await getProductSlugRedirectCached(slug);
+  if (redirectedSlug && redirectedSlug !== slug) {
+    permanentRedirect(localizePublicPath(`/products/${redirectedSlug}`, locale));
+  }
+
+  let initialProduct: Product | null = sku ? await getProductBySkuCached(sku) : null;
+  initialProduct = initialProduct || (await searchFirstProduct(slug));
 
   if (!initialProduct) {
     notFound();
@@ -259,7 +271,10 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     permanentRedirect(`${canonicalPath}?${PUBLIC_LOCALE_SELECTION_PARAM}=${DEFAULT_PUBLIC_LOCALE}`);
   }
   if (canonicalId && canonicalId !== slug) {
-    redirect(localizePublicPath(`/products/${canonicalId}`, hasRequestedTranslation ? locale : 'en'));
+    // 308, not 307: a legacy SKU URL or a pre-rename slug is a permanent move to
+    // the keyword slug, so the old address has to consolidate into the new one
+    // instead of telling crawlers the change is temporary.
+    permanentRedirect(localizePublicPath(`/products/${canonicalId}`, hasRequestedTranslation ? locale : 'en'));
   }
 
   const context = await loadProductPageContext(initialProduct, locale);

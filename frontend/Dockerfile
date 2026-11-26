@@ -57,6 +57,8 @@ RUN mkdir .next && chown nextjs:nodejs .next
 
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# Next.js only gzips; this wrapper serves the same routes with brotli.
+COPY --chown=nextjs:nodejs brotli-proxy.mjs ./brotli-proxy.mjs
 
 # Some Next.js standalone outputs end up nested under /app/app (monorepo-like output tracing).
 # Ensure the runtime server can always find `.next/static` and `public` next to its server.js.
@@ -67,8 +69,11 @@ USER nextjs
 
 EXPOSE 3000
 ENV PORT=3000
+# The wrapper listens on PORT and proxies to this internal port.
+ENV INTERNAL_PORT=3001
 ENV HOSTNAME=0.0.0.0
 
 # Next.js standalone output path can differ depending on outputFileTracingRoot.
-# Prefer /app/server.js, fallback to /app/app/server.js.
-CMD ["sh", "-lc", "if [ -f /app/server.js ]; then exec node /app/server.js; elif [ -f /app/app/server.js ]; then exec node /app/app/server.js; else echo \"server.js not found\"; ls -la /app; exit 1; fi"]
+# The wrapper resolves /app/server.js or /app/app/server.js itself; BROTLI_PROXY=off
+# falls back to serving Next.js directly.
+CMD ["sh", "-lc", "if [ -f /app/brotli-proxy.mjs ]; then exec node /app/brotli-proxy.mjs; elif [ -f /app/server.js ]; then exec node /app/server.js; elif [ -f /app/app/server.js ]; then exec node /app/app/server.js; else echo \"server.js not found\"; ls -la /app; exit 1; fi"]

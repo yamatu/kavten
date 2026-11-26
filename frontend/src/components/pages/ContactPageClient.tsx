@@ -1,7 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import ContactService from '@/services/contact.service';
 import type { ContactCreateRequest } from '@/services/contact.service';
@@ -65,7 +64,6 @@ const breadcrumbSchema = {
 };
 
 function ContactContent({ data }: { data: PageData }) {
-  const searchParams = useSearchParams();
   const { locale, t, href } = usePublicI18n();
   const text = createPageText(CONTACT_PAGE_SCHEMA, data, locale, (key) => t(key));
   const heroImage = text('heroImage');
@@ -85,15 +83,19 @@ function ContactContent({ data }: { data: PageData }) {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Prefill email from query string (e.g., /contact?email=foo@bar.com)
+  // Prefill email from query string (e.g., /contact?email=foo@bar.com).
+  // Read from window instead of useSearchParams: a hook call here forced the
+  // whole page to bail out to client-side rendering, so crawlers received an
+  // empty document with no H1 and no copy.
   useEffect(() => {
-    const email = searchParams?.get('email') || '';
-    const inquiryType = searchParams?.get('inquiry_type');
+    const params = new URLSearchParams(window.location.search);
+    const email = params.get('email') || '';
+    const inquiryType = params.get('inquiry_type');
     const nextInquiryType = inquiryType === 'parts' || inquiryType === 'repair' || inquiryType === 'support' || inquiryType === 'quote'
       ? inquiryType
       : undefined;
     if (email || nextInquiryType) setFormData((prev) => ({ ...prev, ...(email ? { email } : {}), ...(nextInquiryType ? { inquiry_type: nextInquiryType } : {}) }));
-  }, [searchParams]);
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData({
@@ -398,9 +400,5 @@ function ContactContent({ data }: { data: PageData }) {
 }
 
 export default function ContactPageClient({ data }: { data: PageData }) {
-  return (
-    <Suspense fallback={<div className="flex items-center justify-center py-10" aria-busy="true"><div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-[var(--site-primary)]" /></div>}>
-      <ContactContent data={data} />
-    </Suspense>
-  );
+  return <ContactContent data={data} />;
 }

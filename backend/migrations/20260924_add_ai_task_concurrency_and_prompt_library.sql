@@ -9,8 +9,8 @@
 -- INFORMATION_SCHEMA below.
 
 DELIMITER $$
-DROP PROCEDURE IF EXISTS vibocnc_add_ai_task_columns$$
-CREATE PROCEDURE vibocnc_add_ai_task_columns()
+DROP PROCEDURE IF EXISTS kavten_add_ai_task_columns$$
+CREATE PROCEDURE kavten_add_ai_task_columns()
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_agent_settings'
@@ -35,8 +35,8 @@ BEGIN
 END$$
 DELIMITER ;
 
-CALL vibocnc_add_ai_task_columns();
-DROP PROCEDURE vibocnc_add_ai_task_columns;
+CALL kavten_add_ai_task_columns();
+DROP PROCEDURE kavten_add_ai_task_columns;
 
 CREATE TABLE IF NOT EXISTS ai_agent_prompt_presets (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

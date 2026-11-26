@@ -3,11 +3,11 @@ import { getRequestBaseUrl } from '@/lib/request-url'
 import { getAllPublishedArticles } from '@/lib/article-sitemap'
 import { renderLocalizedSitemap } from '@/lib/i18n/sitemap'
 import { getAvailableTranslationLocales } from '@/lib/i18n/content'
-import { PUBLIC_LOCALES } from '@/lib/i18n/config'
+import { ACTIVE_PUBLIC_LOCALES } from '@/lib/i18n/config'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 3600 // 1 hour
-const ALL_PUBLIC_LOCALES = PUBLIC_LOCALES.map((locale) => locale.code)
+const ALL_PUBLIC_LOCALES = [...ACTIVE_PUBLIC_LOCALES]
 
 function latestArticleModifiedAt(articles: Awaited<ReturnType<typeof getAllPublishedArticles>>): string | undefined {
   const timestamps = articles

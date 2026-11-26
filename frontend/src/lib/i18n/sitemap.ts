@@ -1,4 +1,4 @@
-import { DEFAULT_PUBLIC_LOCALE, PUBLIC_LOCALES, localizePublicPath, type PublicLocale } from './config';
+import { ACTIVE_PUBLIC_LOCALES, DEFAULT_PUBLIC_LOCALE, getLocaleConfig, localizePublicPath, type PublicLocale } from './config';
 
 export interface LocalizedSitemapEntry {
   pathname: string;
@@ -25,7 +25,7 @@ function absoluteUrl(baseUrl: string, pathname: string): string {
 
 function entryLocales(entry: LocalizedSitemapEntry) {
   const allowedLocales = new Set<PublicLocale>([DEFAULT_PUBLIC_LOCALE, ...(entry.availableLocales || [])]);
-  return PUBLIC_LOCALES.filter((locale) => allowedLocales.has(locale.code));
+  return ACTIVE_PUBLIC_LOCALES.filter((locale) => allowedLocales.has(locale));
 }
 
 function renderImages(baseUrl: string, entry: LocalizedSitemapEntry): string {
@@ -39,7 +39,7 @@ function renderImages(baseUrl: string, entry: LocalizedSitemapEntry): string {
 }
 
 export function renderLocalizedSitemapEntries(baseUrl: string, entry: LocalizedSitemapEntry): string {
-  const locales = entryLocales(entry);
+  const locales = entryLocales(entry).map((code) => getLocaleConfig(code));
   // A single-language entry would only carry self-referencing en/x-default links (already in the page
   // <head>); omitting them keeps the file free of XHTML elements so browsers render the XML tree view.
   const alternateLinks = locales.length > 1

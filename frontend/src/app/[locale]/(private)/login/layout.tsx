@@ -6,9 +6,9 @@ export function generateMetadata(): Metadata {
     title: 'Customer Login',
     alternates: { canonical: `${getSiteUrl()}/login` },
     robots: {
-      index: true,
+      index: false,
       follow: true,
-      googleBot: { index: true, follow: true },
+      googleBot: { index: false, follow: true },
     },
   };
 }

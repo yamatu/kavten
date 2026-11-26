@@ -1,4 +1,4 @@
-import { PUBLIC_LOCALES, type PublicLocale } from '@/lib/i18n/config';
+import { ACTIVE_PUBLIC_LOCALES, type PublicLocale } from '@/lib/i18n/config';
 
 // 1000 URLs per shard keeps a 120k+ catalogue inside ~130 shards, well under
 // MAX_PRODUCT_SITEMAPS. Shards are read from the dedicated
@@ -25,7 +25,7 @@ interface ProductSitemapPage {
   total_pages: number;
 }
 
-const publicLocaleCodes = new Set<string>(PUBLIC_LOCALES.map((locale) => locale.code));
+const publicLocaleCodes = new Set<string>(ACTIVE_PUBLIC_LOCALES);
 
 export function sitemapLocales(entry: ProductSitemapEntry): PublicLocale[] {
   return (entry.locales || []).filter((code): code is PublicLocale => publicLocaleCodes.has(code) && code !== 'en');

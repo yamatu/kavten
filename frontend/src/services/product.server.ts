@@ -56,3 +56,18 @@ export const getProductBySkuCached = cache(async (sku: string): Promise<Product 
   }
   return searchFirstProduct(trimmed);
 });
+
+/**
+ * Resolves a retired product URL to the slug that is live now. Used to answer
+ * 301 instead of 404 when a listing was renamed or a duplicate batch retired.
+ */
+export const getProductSlugRedirectCached = cache(async (slug: string): Promise<string | null> => {
+  const trimmed = slug?.trim() || '';
+  if (!trimmed) return null;
+  const url = `${getApiBaseUrl()}/public/products/slug-redirect?slug=${encodeURIComponent(trimmed)}`;
+  const res = await fetchBackend(url, [`product-slug-${trimmed}`, 'all-products']);
+  if (!res) return null;
+  const json = (await res.json()) as APIResponse<{ slug?: string }>;
+  const target = json?.success ? json.data?.slug : undefined;
+  return typeof target === 'string' && target.trim() ? target.trim() : null;
+});

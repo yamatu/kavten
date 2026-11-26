@@ -3,12 +3,12 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"kavten-backend/config"
 	"kavten-backend/models"
 	"kavten-backend/services"
 	"kavten-backend/utils"
-	"fmt"
-	"io"
 	"net/http"
 	neturl "net/url"
 	"strconv"
@@ -85,7 +85,17 @@ func withPublicProductPreloads(db *gorm.DB) *gorm.DB {
 // Shared finder for SKU-based retrieval with tolerant matching
 func findProductBySKUInternal(sku string) (models.Product, error) {
 	var product models.Product
-	db := config.GetDB()
+	// Retired products (is_active = false) must not resolve: their URL is served
+	// by the slug-history redirect instead, so a delisted duplicate 301s to the
+	// surviving product rather than rendering a page that can still be ordered.
+	//
+	// It must be a factory, not a stored query: gorm.DB.Where returns an
+	// instance with clone = 0, so reusing it for the next lookup appends to the
+	// same statement and the earlier condition (slug = ?, sku IN ?) silently
+	// carries over, turning every fallback into a guaranteed miss.
+	activeProducts := func() *gorm.DB {
+		return config.GetDB().Where("is_active = ?", true)
+	}
 
 	normalized := strings.TrimSpace(sku)
 	upper := strings.ToUpper(normalized)
@@ -115,14 +125,14 @@ func findProductBySKUInternal(sku string) (models.Product, error) {
 	}
 
 	// Product URLs use the keyword slug; SKU lookups below stay as a fallback.
-	if err := withPublicProductPreloads(db).Where("slug = ?", strings.ToLower(normalized)).First(&product).Error; err == nil {
+	if err := withPublicProductPreloads(activeProducts()).Where("slug = ?", strings.ToLower(normalized)).First(&product).Error; err == nil {
 		return product, nil
 	} else if err != gorm.ErrRecordNotFound {
 		return product, err
 	}
 
 	// Step 1: exact SKU match
-	if err := withPublicProductPreloads(db).
+	if err := withPublicProductPreloads(activeProducts()).
 		Where("sku IN ?", candidates).
 		Order(gorm.Expr("FIELD(sku, ?) DESC, updated_at DESC", candidates)).
 		First(&product).Error; err != nil {
@@ -130,7 +140,7 @@ func findProductBySKUInternal(sku string) (models.Product, error) {
 			return product, err
 		}
 		// Step 2: exact model/part_number
-		if err2 := withPublicProductPreloads(db).
+		if err2 := withPublicProductPreloads(activeProducts()).
 			Where("model = ? OR part_number = ?", normalized, normalized).
 			Order("updated_at DESC").
 			First(&product).Error; err2 != nil {
@@ -139,7 +149,7 @@ func findProductBySKUInternal(sku string) (models.Product, error) {
 			}
 			// Step 3: prefix fallback
 			likePrefix := normalized + "%"
-			if err3 := withPublicProductPreloads(db).
+			if err3 := withPublicProductPreloads(activeProducts()).
 				Where("sku LIKE ? OR model LIKE ? OR part_number LIKE ?", likePrefix, likePrefix, likePrefix).
 				Order("updated_at DESC").
 				First(&product).Error; err3 != nil {
@@ -150,7 +160,7 @@ func findProductBySKUInternal(sku string) (models.Product, error) {
 				// (incl. NBSP), so slug-derived candidates like "FP0-E16RS-A-(B)"
 				// resolve stored SKUs like "FP0-E16RS-A -(B)" (sanitizeSKUForCompare).
 				sanitized := sanitizeSKUForCompare(normalized)
-				if err4 := withPublicProductPreloads(db).
+				if err4 := withPublicProductPreloads(activeProducts()).
 					Where("REGEXP_REPLACE(sku, '[-/[:space:]]+', '') = ?", sanitized).
 					Order("updated_at DESC").
 					First(&product).Error; err4 != nil {
@@ -764,6 +774,68 @@ func (pc *ProductController) GetProductBySKUQuery(c *gin.Context) {
 	}
 	productResponse := convertToProductResponse(product)
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Product retrieved successfully", Data: productResponse})
+}
+
+// GetProductSlugRedirect resolves a retired product URL to its current one.
+// Slugs are rewritten (product_slug_history) when a listing is renamed or when a
+// duplicate batch is retired; the frontend turns the answer into a 301 so the
+// old URL keeps the signals it accumulated instead of returning 404.
+func (pc *ProductController) GetProductSlugRedirect(c *gin.Context) {
+	slug := strings.ToLower(strings.TrimSpace(c.Query("slug")))
+	if slug == "" {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Missing slug parameter", Error: "invalid_request"})
+		return
+	}
+
+	db := config.GetDB()
+	hasHistory := db.Migrator().HasTable("product_slug_history")
+
+	lookup := func(value string) string {
+		if !hasHistory {
+			return ""
+		}
+		var row struct{ NewSlug string }
+		if err := db.Table("product_slug_history").
+			Select("new_slug").
+			Where("old_slug = ?", value).
+			Limit(1).
+			Scan(&row).Error; err != nil {
+			return ""
+		}
+		return strings.TrimSpace(row.NewSlug)
+	}
+
+	target := lookup(slug)
+	if target == "" {
+		var redirect models.SEORedirect
+		oldPath := "/products/" + slug
+		if err := db.Where("is_active = ? AND old_url IN ?", true, []string{oldPath, slug}).First(&redirect).Error; err == nil {
+			target = strings.TrimSpace(redirect.NewURL)
+			if idx := strings.LastIndex(target, "/products/"); idx >= 0 {
+				target = target[idx+len("/products/"):]
+			}
+			target = strings.Trim(target, "/")
+		}
+	}
+
+	// Follow one more hop so a chained rename still lands on the live URL.
+	if next := lookup(target); next != "" && !strings.EqualFold(next, target) {
+		target = next
+	}
+
+	// Never point a redirect at something that is no longer purchasable.
+	var product models.Product
+	if target == "" || strings.EqualFold(target, slug) ||
+		db.Select("id", "slug").Where("slug = ? AND is_active = ?", target, true).First(&product).Error != nil {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "No redirect for this slug", Error: "not_found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Message: "Redirect resolved",
+		Data:    gin.H{"slug": product.Slug},
+	})
 }
 
 // BulkUpdateReq is the payload for the product bulk update endpoint. Flag

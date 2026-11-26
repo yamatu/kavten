@@ -54,8 +54,14 @@ export async function generateMetadata({ params, searchParams }: CategoryPathPag
     const { categoryPath } = await params;
     const resolvedSearchParams = (await searchParams) || {};
     const rawPage = Array.isArray(resolvedSearchParams.page) ? resolvedSearchParams.page[0] : resolvedSearchParams.page;
-    // Deep pages repeat page 1's copy; keep them crawlable but out of the index.
+    // Deep pages and filtered views repeat page 1's copy in a different order;
+    // keep them crawlable but out of the index (canonical stays on the base URL).
     const isDeepPage = Math.max(1, Number.parseInt(rawPage || '1', 10) || 1) > 1;
+    const FILTER_PARAMS = ['brand', 'sort_by', 'sort_dir', 'min_price', 'max_price', 'search', 'tag', 'q', 'page_size'];
+    const hasFilterParams = FILTER_PARAMS.some((key) => {
+      const value = resolvedSearchParams[key];
+      return Array.isArray(value) ? value.some(Boolean) : Boolean(value);
+    });
     const locale = await resolveRouteLocale(params);
     const path = (categoryPath || []).join('/');
     const resolved = await CategoryService.getCategoryByPath(path);
@@ -76,7 +82,7 @@ export async function generateMetadata({ params, searchParams }: CategoryPathPag
     return {
       title,
       description,
-      robots: { index: hasRequestedTranslation && !isDeepPage, follow: true },
+      robots: { index: hasRequestedTranslation && !isDeepPage && !hasFilterParams, follow: true },
       openGraph: {
         title: withSiteName(title),
         description,

@@ -15,10 +15,19 @@ export const PUBLIC_LOCALES = [
 export type PublicLocale = (typeof PUBLIC_LOCALES)[number]['code'];
 
 export const DEFAULT_PUBLIC_LOCALE: PublicLocale = 'en';
+// The storefront publishes a single language. Machine-translated locale copies
+// of English pages (identical body copy under /zh/, /es/, ...) competed with the
+// originals in the index, so only English is announced, linked and sitemapped.
+// The other codes stay in PUBLIC_LOCALES so legacy /<locale>/ paths can be
+// matched and permanently redirected instead of 404ing.
+export const ACTIVE_PUBLIC_LOCALES: readonly PublicLocale[] = [DEFAULT_PUBLIC_LOCALE];
+export const RETIRED_PUBLIC_LOCALES: readonly PublicLocale[] = PUBLIC_LOCALES
+  .map((locale) => locale.code)
+  .filter((code) => !ACTIVE_PUBLIC_LOCALES.includes(code));
 // Locales that may appear in hreflang and in the sitemap by default. Products,
 // categories and articles add their own locale once a real translation exists;
 // everything else is a UI-only language and must not be announced to crawlers.
-export const INDEXABLE_PUBLIC_LOCALES: readonly PublicLocale[] = [DEFAULT_PUBLIC_LOCALE];
+export const INDEXABLE_PUBLIC_LOCALES: readonly PublicLocale[] = ACTIVE_PUBLIC_LOCALES;
 export const PUBLIC_LOCALE_COOKIE = 'kavten_locale';
 export const PUBLIC_LOCALE_SELECTION_PARAM = 'site_locale';
 
@@ -184,7 +193,7 @@ export function buildLanguageAlternates(
   const cleanPath = stripLocaleFromPathname(pathname || '/');
   const allowedLocales = new Set<PublicLocale>([DEFAULT_PUBLIC_LOCALE, ...availableLocales]);
   const languages = Object.fromEntries(
-    PUBLIC_LOCALES.filter((locale) => allowedLocales.has(locale.code)).map((locale) => [
+    PUBLIC_LOCALES.filter((locale) => allowedLocales.has(locale.code) && ACTIVE_PUBLIC_LOCALES.includes(locale.code)).map((locale) => [
       locale.hreflang,
       `${cleanBase}${localizePublicPath(cleanPath, locale.code) === '/' ? '' : localizePublicPath(cleanPath, locale.code)}`,
     ]),

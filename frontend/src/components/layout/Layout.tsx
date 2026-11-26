@@ -4,7 +4,6 @@ import { ReactNode } from 'react';
 import Header from './Header';
 import Footer from './Footer';
 import WhatsAppButton from '../ui/WhatsAppButton';
-import MobileLanguageSwitcher from './MobileLanguageSwitcher';
 import FloatingCartButton from '../cart/FloatingCartButton';
 import { CartSidebar } from '../cart/CartSidebar';
 
@@ -20,7 +19,6 @@ export default function Layout({ children }: LayoutProps) {
         {children}
       </main>
       <Footer />
-      <MobileLanguageSwitcher />
       <WhatsAppButton />
       <FloatingCartButton />
       <CartSidebar />

@@ -2,7 +2,6 @@
 
 import { lazy, Suspense, useEffect, useState } from 'react';
 
-const MobileLanguageSwitcher = lazy(() => import('./MobileLanguageSwitcher'));
 const WhatsAppButton = lazy(() => import('@/components/ui/WhatsAppButton'));
 
 type IdleWindow = Window & {
@@ -42,7 +41,6 @@ export default function DeferredPublicWidgets() {
 
   return (
     <Suspense fallback={null}>
-      <MobileLanguageSwitcher />
       <WhatsAppButton />
     </Suspense>
   );

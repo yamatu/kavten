@@ -231,6 +231,9 @@ services:
       NEXT_CACHE_MAX_MB: ${NEXT_CACHE_MAX_MB:-256}
       # Without a heap ceiling V8 grows lazily until the kernel OOM-kills it.
       NODE_OPTIONS: ${FRONTEND_NODE_OPTIONS:---max-old-space-size=768}
+      # brotli front door (frontend/brotli-proxy.mjs). Set "off" to serve Next.js raw.
+      BROTLI_PROXY: ${BROTLI_PROXY:-on}
+      BROTLI_QUALITY: ${BROTLI_QUALITY:-4}
     # Heap (768m) + cached page buffers (256m, off-heap) + runtime overhead.
     mem_limit: ${FRONTEND_MEM_LIMIT:-1536m}
     # A crashing Node process must not leave multi-GB core files in the container.

@@ -98,6 +98,8 @@ func SetupRoutes(r *gin.Engine) {
 			public.GET("/products", middleware.CachePublicGET(middleware.CacheTTLProducts(), "cache:public:products:"), productController.GetProducts)
 			// Key prefix sits under "cache:public:products:" so product mutations clear it too.
 			public.GET("/products/sitemap", middleware.CachePublicGET(middleware.CacheTTLProducts(), "cache:public:products:sitemap:"), productController.GetProductSitemapEntries)
+			// Retired product URLs resolve here so the frontend can answer 301.
+			public.GET("/products/slug-redirect", middleware.CachePublicGET(middleware.CacheTTLProducts(), "cache:public:product_redirect:"), productController.GetProductSlugRedirect)
 			public.GET("/products/default-image", watermarkController.DefaultProductImage)
 			public.GET("/products/default-image/:sku", watermarkController.DefaultProductImage)
 			// Media validators and crawlers may probe image URLs with HEAD before

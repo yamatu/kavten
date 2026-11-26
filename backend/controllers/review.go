@@ -157,10 +157,14 @@ func (rc *ReviewController) GetEligibility(c *gin.Context) {
 	}
 
 	switch {
-	case len(resp.Orders) == 0:
-		resp.Reason = "no_purchase"
 	case resp.Review != nil && resp.Review.Status != models.ReviewStatusRejected:
 		resp.Reason = "already_reviewed"
+	case len(resp.Orders) == 0:
+		// Any signed-in customer may write a review; a purchase only upgrades it to
+		// "verified buyer". Without a purchase the review is still first-party, but
+		// it is published unverified and only after a moderator approves it.
+		resp.Eligible = true
+		resp.Reason = "no_purchase"
 	default:
 		resp.Eligible = true
 	}
@@ -195,7 +199,10 @@ type createReviewRequest struct {
 }
 
 // Customer: POST /api/v1/customer/reviews
-// Reviews are accepted only from verified buyers and always start pending.
+// Any signed-in customer can submit a review of any product, and every review
+// starts pending. A matching order marks the review as a verified purchase;
+// without one the review is stored unverified so the page never claims a
+// verified-buyer badge or order it cannot back up.
 func (rc *ReviewController) CreateReview(c *gin.Context) {
 	customer, ok := loadCurrentCustomer(c)
 	if !ok {
@@ -229,13 +236,14 @@ func (rc *ReviewController) CreateReview(c *gin.Context) {
 	}
 
 	var order models.Order
+	var orderID *uint
+	purchased := false
 	if err := eligibleReviewOrdersQuery(db, customer, req.ProductID).
 		Order("orders.created_at DESC").
-		First(&order).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusForbidden, models.APIResponse{Success: false, Message: "Only customers who purchased this product can review it", Error: "no_purchase"})
-			return
-		}
+		First(&order).Error; err == nil {
+		purchased = true
+		orderID = &order.ID
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to verify purchase", Error: utils.PublicError(err, "internal_error")})
 		return
 	}
@@ -251,18 +259,17 @@ func (rc *ReviewController) CreateReview(c *gin.Context) {
 		return
 	}
 
-	// A rejected review is resubmitted in place, keeping one review per buyer.
+	// A rejected review is resubmitted in place, keeping one review per customer.
 	customerID := customer.ID
-	orderID := order.ID
 	review.ProductID = req.ProductID
 	review.CustomerID = &customerID
-	review.OrderID = &orderID
+	review.OrderID = orderID
 	review.CustomerName = name
 	review.CustomerEmail = customer.Email
 	review.Rating = req.Rating
 	review.ReviewTitle = title
 	review.ReviewContent = content
-	review.IsVerified = true
+	review.IsVerified = purchased
 	review.IPAddress = c.ClientIP()
 	applyReviewStatus(&review, models.ReviewStatusPending)
 

@@ -12,11 +12,13 @@ export async function generateMetadata({ params }: { params: LocaleRouteParams }
     title,
     description,
     alternates: { canonical, languages },
+    // The page is a form with no content of its own; results live under
+    // /orders/track/*, which robots.txt already excludes.
     robots: {
-      index: true,
+      index: false,
       follow: true,
       googleBot: {
-        index: true,
+        index: false,
         follow: true,
       },
     },

@@ -1067,6 +1067,7 @@ func MigratedModels() []interface{} {
 		&models.ProductProfileDraft{},
 		&models.PurchaseLink{},
 		&models.SEORedirect{},
+		&models.ProductSlugHistory{},
 		&models.Customer{},
 		&models.Order{},
 		&models.OrderItem{},

@@ -256,6 +256,9 @@ function ReviewForm({ productId }: { productId: number }) {
       {eligibility.orders[0] && (
         <p className="text-xs text-slate-500">{t('review.purchasedIn', { number: eligibility.orders[0].order_number })}</p>
       )}
+      {eligibility.reason === 'no_purchase' && (
+        <p className="text-xs text-slate-500">{t('review.noPurchaseNotice')}</p>
+      )}
       <div>
         <span className="mb-1 block text-sm font-medium text-slate-700">{t('review.rating')}</span>
         <div className="flex items-center gap-1" role="radiogroup" aria-label={t('review.rating')} onMouseLeave={() => setHover(0)}>

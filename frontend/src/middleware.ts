@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import {
+  ACTIVE_PUBLIC_LOCALES,
   DEFAULT_PUBLIC_LOCALE,
   PUBLIC_LOCALE_COOKIE,
   PUBLIC_LOCALE_SELECTION_PARAM,
+  RETIRED_PUBLIC_LOCALES,
   detectPublicLocale,
   getLocaleFromPathname,
   isPublicLocale,
@@ -168,6 +170,18 @@ export async function middleware(request: NextRequest) {
     url.pathname = rawPathname.slice(3) || '/';
     return NextResponse.redirect(url, 308);
   }
+  // The storefront is English-only. Retired locale prefixes are permanently
+  // redirected to the English URL so any previously indexed or linked
+  // /zh/, /es/, ... page consolidates into one canonical address instead of
+  // 404ing or serving a duplicate.
+  const retiredLocale = rawPathname.split('/')[1]?.toLowerCase();
+  if (retiredLocale && RETIRED_PUBLIC_LOCALES.includes(retiredLocale as (typeof RETIRED_PUBLIC_LOCALES)[number])) {
+    const url = request.nextUrl.clone();
+    const remainder = rawPathname.slice(retiredLocale.length + 1);
+    url.pathname = remainder && remainder !== '/' ? remainder : '/';
+    if (url.pathname === '/index') url.pathname = '/';
+    return NextResponse.redirect(url, 301);
+  }
   const pathLocale = getLocaleFromPathname(rawPathname);
   const pathname = stripLocaleFromPathname(rawPathname);
   const locale = pathLocale || DEFAULT_PUBLIC_LOCALE;
@@ -192,7 +206,14 @@ export async function middleware(request: NextRequest) {
   const userAgent = request.headers.get('user-agent') || '';
 
   const requestedLocale = request.nextUrl.searchParams.get(PUBLIC_LOCALE_SELECTION_PARAM);
-  if (isPublicLocale(requestedLocale) && isLocalizablePublicPath(pathname)) {
+  // Retired locales are no longer published: drop the selector parameter
+  // instead of redirecting into a locale URL that immediately 301s back.
+  if (requestedLocale && isPublicLocale(requestedLocale) && !ACTIVE_PUBLIC_LOCALES.includes(requestedLocale) && isLocalizablePublicPath(pathname)) {
+    const url = request.nextUrl.clone();
+    url.searchParams.delete(PUBLIC_LOCALE_SELECTION_PARAM);
+    return NextResponse.redirect(url, 307);
+  }
+  if (isPublicLocale(requestedLocale) && ACTIVE_PUBLIC_LOCALES.includes(requestedLocale) && isLocalizablePublicPath(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = localizePublicPath(pathname, requestedLocale);
     url.searchParams.delete(PUBLIC_LOCALE_SELECTION_PARAM);
@@ -327,11 +348,31 @@ export async function middleware(request: NextRequest) {
     // For now, let the route handler deal with it to avoid complexity here
   }
 
-  // Canonicalize legacy CISON-prefixed product URLs to the shared product slug rule.
-  if (/^\/products\/CISON-/i.test(pathname)) {
+  // "/Products" and "/FAQ" 404 because Next routes are case-sensitive, and every
+  // link shared that way loses its signal. Only known first segments are folded,
+  // so product slugs keep their own casing rules.
+  const CASE_FOLD_FIRST_SEGMENTS = new Set([
+    'products', 'categories', 'about', 'contact', 'faq', 'blog', 'news', 'docs',
+    'privacy', 'terms', 'returns', 'warranty', 'warranty-policy', 'shipping-policy',
+    'technical-support', 'repair-request', 'track-order', 'brands', 'search',
+    'cart', 'checkout', 'account', 'login', 'register', 'forgot-password',
+  ]);
+  const firstSegment = pathname.split('/').filter(Boolean)[0] || '';
+  if (firstSegment && firstSegment !== firstSegment.toLowerCase() && CASE_FOLD_FIRST_SEGMENTS.has(firstSegment.toLowerCase())) {
     const url = request.nextUrl.clone();
-    url.pathname = localizePublicPath(pathname.replace(/^\/products\/CISON-/i, '/products/'), locale);
+    url.pathname = localizePublicPath(pathname.replace(`/${firstSegment}`, `/${firstSegment.toLowerCase()}`), locale);
     return NextResponse.redirect(url, 301);
+  }
+
+  // Canonicalize legacy CISON-prefixed product URLs to the shared product slug rule.
+  // Case-sensitive on purpose: 33 product slugs legitimately start with "cison-",
+  // and a case-insensitive match rewrote them to a slug that does not exist
+  // (301 -> 404), dropping those products out of the index entirely. Legacy URLs
+  // only ever used the uppercase SKU prefix.
+  if (/^\/products\/CISON-/.test(pathname)) {
+    const url = request.nextUrl.clone();
+    url.pathname = localizePublicPath(pathname.replace(/^\/products\/CISON-/, '/products/'), locale);
+    return NextResponse.redirect(url, 308);
   }
 
   // Check if the current path is a protected route

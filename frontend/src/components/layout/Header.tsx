@@ -24,7 +24,6 @@ import { localizeProductContent } from '@/lib/i18n/content';
 import { STORE_CATEGORIES, categoryHref, categoryLabelKey, type StoreCategory } from '@/lib/store-catalog';
 import { cn, formatCurrency, getDefaultProductImageWithSku, getProductImageUrl, hasProductPrice, productPathSegment } from '@/lib/utils';
 import type { Category, Product } from '@/types';
-import LanguageSelector from './LanguageSelector';
 
 type CategoryMeta = { count?: number; image?: string; childCounts: Record<string, number> };
 
@@ -338,7 +337,6 @@ function MobileDrawer({ onClose, meta }: { onClose: () => void; meta: Record<str
           <Link href={href('/contact')} onClick={onClose} className="rounded-xl border-2 border-[var(--site-ink)] bg-white px-3 py-2.5 text-center">{t('store.contact')}</Link>
           <Link href={href('/track-order')} onClick={onClose} className="rounded-xl border-2 border-[var(--site-ink)] bg-white px-3 py-2.5 text-center">{t('store.footer.track')}</Link>
           <Link href={href('/faq')} onClick={onClose} className="rounded-xl border-2 border-[var(--site-ink)] bg-white px-3 py-2.5 text-center">{t('store.footer.faq')}</Link>
-          <div className="col-span-2 mt-2"><LanguageSelector /></div>
         </div>
       </div>
     </div>
@@ -367,7 +365,6 @@ export function Header() {
             <Link href={href('/about')} className="font-semibold text-white/80 hover:text-white">{t('store.about')}</Link>
             <Link href={href('/contact')} className="font-semibold text-white/80 hover:text-white">{t('store.contact')}</Link>
             <Link href={href('/track-order')} className="font-semibold text-white/80 hover:text-white">{t('store.footer.track')}</Link>
-            <LanguageSelector variant="dark" />
           </div>
         </div>
       </div>

@@ -1,5 +1,5 @@
 // Storefront navigation tree. IDs and slugs mirror the categories created by
-// scripts/import_enginediy.py so links work before the API tree has loaded.
+// The catalog importer so links work before the API tree has loaded.
 
 export type StoreSubcategory = { id: number; slug: string };
 export type StoreCategory = {

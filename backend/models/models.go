@@ -190,6 +190,18 @@ type AdminUser struct {
 	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
+// ProductSlugHistory records every retired product URL together with the URL
+// that replaced it. Scripts write it when a listing is renamed or a duplicate
+// batch is retired; the product page reads it to answer 301 instead of 404.
+type ProductSlugHistory struct {
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	ProductID uint      `json:"product_id" gorm:"not null;index:idx_slug_history_product"`
+	OldSlug   string    `json:"old_slug" gorm:"size:255;not null;uniqueIndex:uniq_slug_history_old"`
+	NewSlug   string    `json:"new_slug" gorm:"size:255;not null"`
+	Reason    string    `json:"reason" gorm:"size:40;not null;default:'renamed'"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // SEORedirect represents URL redirects for SEO
 type SEORedirect struct {
 	ID           uint      `json:"id" gorm:"primaryKey"`

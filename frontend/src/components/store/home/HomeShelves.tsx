@@ -9,20 +9,35 @@ type T = (key: string, vars?: Record<string, string | number>) => string;
 export function FeaturedGrid({ t, href, products }: { t: T; href: (p: string) => string; products: Product[] }) {
   if (products.length === 0) return null;
   return (
-    <section className="border-y-2 border-[var(--site-ink)] bg-[var(--site-ink)] py-16 text-white lg:py-20">
+    <section className="bg-white py-14 lg:py-20" aria-labelledby="kavten-featured">
+      {/* Warm editorial panel instead of a full-bleed ink band: the section still
+          reads as the loudest block on the page, but it no longer cuts the cream
+          scroll into two hard halves on phones. */}
       <div className="kv-container">
-        <div className="mb-10 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-          <div>
-            <span className="kv-kicker">★ {t('store.featured.kicker')}</span>
-            <h2 className="kv-display mt-4 text-4xl font-extrabold sm:text-5xl">{t('store.featured.title')}</h2>
-            <p className="mt-3 max-w-xl text-white/70">{t('store.featured.text')}</p>
+        <div className="relative overflow-hidden rounded-[2rem] border-2 border-[var(--site-ink)]/10 bg-gradient-to-br from-[#fff5e6] via-[#fdeee7] to-[#fff9ee] px-5 py-10 sm:rounded-[2.5rem] sm:px-8 sm:py-12 lg:px-12 lg:py-14">
+          <div className="kv-dots pointer-events-none absolute inset-0 opacity-25" aria-hidden />
+          <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-[var(--site-primary)]/10 blur-3xl" aria-hidden />
+          <div className="pointer-events-none absolute -bottom-28 -left-16 h-64 w-64 rounded-full bg-[var(--site-yellow)]/30 blur-3xl" aria-hidden />
+
+          <div className="relative">
+            <div className="mb-9 flex flex-col justify-between gap-5 md:flex-row md:items-end">
+              <div>
+                <span className="kv-kicker">★ {t('store.featured.kicker')}</span>
+                <h2 id="kavten-featured" className="kv-display mt-4 text-4xl font-extrabold text-[var(--site-ink)] sm:text-5xl">
+                  {t('store.featured.title')}
+                </h2>
+                <p className="mt-3 max-w-xl text-[var(--site-muted)]">{t('store.featured.text')}</p>
+              </div>
+              <Link href={href('/products')} className="kv-btn kv-btn-red self-start md:self-auto">
+                {t('store.allProducts')} →
+              </Link>
+            </div>
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 lg:gap-5">
+              {products.slice(0, 8).map((product) => (
+                <StoreProductCard key={product.id} product={product} />
+              ))}
+            </div>
           </div>
-          <Link href={href('/products')} className="kv-btn kv-btn-yellow self-start md:self-auto">{t('store.allProducts')} →</Link>
-        </div>
-        <div className="grid grid-cols-2 gap-4 text-[var(--site-ink)] md:grid-cols-3 lg:grid-cols-4 lg:gap-5">
-          {products.slice(0, 8).map((product) => (
-            <StoreProductCard key={product.id} product={product} />
-          ))}
         </div>
       </div>
     </section>

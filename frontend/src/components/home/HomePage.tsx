@@ -2,7 +2,7 @@ import PublicLayout from '@/components/layout/PublicLayout';
 import HomeHero from '@/components/store/home/HomeHero';
 import HomeCategoryTiles from '@/components/store/home/HomeCategoryTiles';
 import { CategoryShelf, FeaturedGrid } from '@/components/store/home/HomeShelves';
-import { BrandMarquee, GiftBanner, StoreFaq, WhyKavten } from '@/components/store/home/HomeExtras';
+import { BrandMarquee, GiftBanner, StoreFaq, WhyKavten, WorkshopTeaser } from '@/components/store/home/HomeExtras';
 import { generateOrganizationSchema, generateWebsiteSchema } from '@/lib/structured-data';
 import { getSiteUrl } from '@/lib/url';
 import { getSocialMediaURLs } from '@/lib/social-media';
@@ -102,6 +102,7 @@ export default async function HomePage({
           />
         ))}
         <WhyKavten t={t} />
+        <WorkshopTeaser t={t} href={href} />
         <GiftBanner t={t} href={href} />
         <StoreFaq t={t} />
       </PublicLayout>

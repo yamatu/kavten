@@ -94,3 +94,53 @@ export function StoreFaq({ t }: { t: T }) {
     </section>
   );
 }
+
+/**
+ * Home teaser for /community. Deliberately static: the storefront home page is
+ * cached for five minutes and must not fail (or slow down) when the forum
+ * database is cold, so this band only links out instead of fetching threads.
+ */
+export function WorkshopTeaser({ t, href }: { t: T; href: (p: string) => string }) {
+  const boards = [
+    { emoji: '🏁', label: t('store.workshop.board.show'), href: '/community?category=show-tell' },
+    { emoji: '🔥', label: t('store.workshop.board.first'), href: '/community?category=first-start' },
+    { emoji: '🛠️', label: t('store.workshop.board.fix'), href: '/community?category=troubleshooting' },
+  ];
+  return (
+    <section className="bg-white py-16" aria-labelledby="kavten-workshop">
+      <div className="kv-container">
+        <div className="relative overflow-hidden rounded-[2rem] border-2 border-[var(--site-ink)] bg-[var(--site-yellow)] px-6 py-10 shadow-[8px_8px_0_var(--site-ink)] sm:px-10 sm:py-12">
+          <div className="kv-dots absolute inset-0 opacity-40" aria-hidden />
+          <div className="pointer-events-none absolute -bottom-14 -right-8 text-[11rem] leading-none opacity-25" aria-hidden>🔧</div>
+          <div className="relative grid gap-8 lg:grid-cols-[1.15fr_1fr] lg:items-center">
+            <div>
+              <span className="kv-kicker bg-white">{t('store.workshop.kicker')}</span>
+              <h2 id="kavten-workshop" className="kv-display mt-4 text-4xl font-extrabold text-[var(--site-ink)] sm:text-5xl">
+                {t('store.workshop.title')}
+              </h2>
+              <p className="mt-3 max-w-xl text-base leading-7 text-[var(--site-ink)]/75">{t('store.workshop.text')}</p>
+              <div className="mt-7 flex flex-wrap gap-3">
+                <Link href={href('/community')} className="kv-btn kv-btn-red">{t('store.workshop.cta')} →</Link>
+                <Link href={href('/community/share')} className="kv-btn kv-btn-white">{t('store.workshop.cta2')}</Link>
+              </div>
+            </div>
+            <ul className="space-y-3">
+              {boards.map((board) => (
+                <li key={board.href}>
+                  <Link
+                    href={href(board.href)}
+                    className="flex items-center gap-3 rounded-2xl border-2 border-[var(--site-ink)] bg-white px-4 py-3 font-bold text-[var(--site-ink)] shadow-[3px_3px_0_var(--site-ink)] transition-transform hover:-translate-y-0.5"
+                  >
+                    <span className="text-xl" aria-hidden>{board.emoji}</span>
+                    {board.label}
+                    <span className="ml-auto text-[var(--site-primary)]" aria-hidden>→</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}

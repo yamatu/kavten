@@ -233,7 +233,7 @@ function CategoryBar({ meta }: { meta: Record<string, CategoryMeta> }) {
         >
           <Bars3Icon className="h-5 w-5" /> {t('store.allProducts')}
         </Link>
-        <ul className="flex flex-1 items-stretch justify-between">
+        <ul className="flex items-stretch">
           {STORE_CATEGORIES.map((category) => {
             const isOpen = openSlug === category.slug;
             const hasChildren = category.children.length > 0;
@@ -255,6 +255,24 @@ function CategoryBar({ meta }: { meta: Record<string, CategoryMeta> }) {
             );
           })}
         </ul>
+        {/* Hub links sit at the far right of the bar: they are not product
+            categories, so they should not read as a ninth department. */}
+        <div className="ml-auto hidden items-stretch xl:flex">
+          <Link
+            href={href('/community')}
+            className="flex items-center gap-1.5 border-l-2 border-white/25 px-3 text-[13px] font-extrabold text-[var(--site-yellow)] hover:bg-white/15 xl:px-4"
+            onMouseEnter={() => open(null)}
+          >
+            {t('store.workshopShort')}
+          </Link>
+          <Link
+            href={href('/news')}
+            className="flex items-center gap-1.5 border-l-2 border-white/25 px-3 text-[13px] font-extrabold text-white hover:bg-white/15 xl:px-4"
+            onMouseEnter={() => open(null)}
+          >
+            {t('store.news')}
+          </Link>
+        </div>
       </div>
       {active ? (
         <div className="absolute left-0 right-0 top-full z-40" onMouseEnter={() => open(active.slug)}>
@@ -333,6 +351,8 @@ function MobileDrawer({ onClose, meta }: { onClose: () => void; meta: Record<str
           })}
         </ul>
         <div className="mt-6 grid grid-cols-2 gap-2 px-4 pb-8 text-sm font-semibold">
+          <Link href={href('/community')} onClick={onClose} className="rounded-xl border-2 border-[var(--site-ink)] bg-[var(--site-yellow)] px-3 py-2.5 text-center">{t('store.community')}</Link>
+          <Link href={href('/news')} onClick={onClose} className="rounded-xl border-2 border-[var(--site-ink)] bg-white px-3 py-2.5 text-center">{t('store.news')}</Link>
           <Link href={href('/about')} onClick={onClose} className="rounded-xl border-2 border-[var(--site-ink)] bg-white px-3 py-2.5 text-center">{t('store.about')}</Link>
           <Link href={href('/contact')} onClick={onClose} className="rounded-xl border-2 border-[var(--site-ink)] bg-white px-3 py-2.5 text-center">{t('store.contact')}</Link>
           <Link href={href('/track-order')} onClick={onClose} className="rounded-xl border-2 border-[var(--site-ink)] bg-white px-3 py-2.5 text-center">{t('store.footer.track')}</Link>
@@ -362,6 +382,8 @@ export function Header() {
             {t('store.announce')}
           </p>
           <div className="hidden shrink-0 items-center gap-4 md:flex">
+            <Link href={href('/community')} className="font-semibold text-[var(--site-yellow)] hover:text-white">{t('store.community')}</Link>
+            <Link href={href('/news')} className="font-semibold text-white/80 hover:text-white">{t('store.news')}</Link>
             <Link href={href('/about')} className="font-semibold text-white/80 hover:text-white">{t('store.about')}</Link>
             <Link href={href('/contact')} className="font-semibold text-white/80 hover:text-white">{t('store.contact')}</Link>
             <Link href={href('/track-order')} className="font-semibold text-white/80 hover:text-white">{t('store.footer.track')}</Link>

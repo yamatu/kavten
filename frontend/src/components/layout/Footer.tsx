@@ -52,6 +52,8 @@ export function Footer({ initialSocialSettings }: { initialSocialSettings?: Soci
   ];
   const company = [
     { label: t('store.about'), path: '/about' },
+    { label: 'Builders’ Workshop', path: '/community' },
+    { label: 'News', path: '/news' },
     { label: t('store.footer.blog'), path: '/blog' },
     { label: t('store.footer.privacy'), path: '/privacy' },
     { label: t('store.footer.terms'), path: '/terms' },

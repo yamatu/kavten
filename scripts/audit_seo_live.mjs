@@ -152,15 +152,17 @@ const categories = entries['/sitemap-categories.xml']?.locs || [];
 const statics = entries['/sitemap-static.xml']?.locs || [];
 const blog = entries['/sitemap-blog.xml']?.locs || [];
 const news = entries['/sitemap-news.xml']?.locs || [];
+const threads = entries['/sitemap-community.xml']?.locs || [];
 const allProducts = (entries['/sitemap-products/1.xml']?.locs || []).concat(entries['/sitemap-products/2.xml']?.locs || []);
 const step = Math.max(1, Math.floor(allProducts.length / PRODUCT_SAMPLE));
 const productSample = allProducts.filter((_, i) => i % step === 0).slice(0, PRODUCT_SAMPLE);
 
-const targets = [...statics, ...categories, ...blog, ...news, ...productSample];
+const targets = [...statics, ...categories, ...blog, ...news, ...threads, ...productSample];
 const label = new Map([
   ...[...statics].map((u) => [u, 'static']),
   ...[...categories].map((u) => [u, 'category']),
   ...[...blog, ...news].map((u) => [u, 'article']),
+  ...[...threads].map((u) => [u, 'thread']),
   ...[...productSample].map((u) => [u, 'product']),
 ]);
 
@@ -172,7 +174,7 @@ const results = await pool(targets, async (url) => {
 const report = {
   base: BASE,
   sitemaps: Object.fromEntries(Object.entries(entries).map(([k, v]) => [k, v.locs.length])),
-  counts: { statics: statics.length, categories: categories.length, blog: blog.length, news: news.length, products: allProducts.length, crawled: results.length },
+  counts: { statics: statics.length, categories: categories.length, blog: blog.length, news: news.length, threads: threads.length, products: allProducts.length, crawled: results.length },
   problems: [],
   results,
 };
@@ -195,7 +197,9 @@ for (const row of results) {
   if (row.h1Count === 0) push(row.kind, row.url, 'no H1');
   if (row.h1Count > 1) push(row.kind, row.url, `${row.h1Count} H1s: ${row.h1.join(' || ').slice(0, 160)}`);
   if (row.ldErrors.length) push(row.kind, row.url, `invalid JSON-LD: ${row.ldErrors.join('; ')}`);
-  if (row.words < 150) push(row.kind, row.url, `thin content (${row.words} words)`);
+  // Community threads are written by owners, not by us: a short "it works now"
+  // reply thread is legitimate, so only editorial pages are held to the length.
+  if (row.kind !== 'thread' && row.words < 150) push(row.kind, row.url, `thin content (${row.words} words)`);
   if (row.imgsNoAlt > 0) push(row.kind, row.url, `${row.imgsNoAlt}/${row.imgs} images without alt`);
   if (row.lang !== 'en') push(row.kind, row.url, `html lang="${row.lang}"`);
 }

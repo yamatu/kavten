@@ -3,13 +3,14 @@ package config
 import (
 	"encoding/json"
 	"errors"
-	"kavten-backend/models"
-	"kavten-backend/utils"
 	"fmt"
 	"log"
 	"os"
 	"strings"
 	"time"
+
+	"kavten-backend/models"
+	"kavten-backend/utils"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -1132,5 +1133,8 @@ func MigratedModels() []interface{} {
 		&models.Article{},
 		&models.ArticleTranslation{},
 		&models.SitePage{},
+		// Player showcase / community forum
+		&models.CommunityPost{},
+		&models.CommunityComment{},
 	}
 }

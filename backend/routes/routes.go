@@ -49,6 +49,7 @@ func SetupRoutes(r *gin.Engine) {
 	socialLinksController := &controllers.SocialLinksController{}
 	analyticsController := &controllers.AnalyticsController{}
 	newsController := &controllers.NewsController{}
+	communityController := &controllers.CommunityController{}
 	sitePageController := &controllers.SitePageController{}
 	productOptimizationController := &controllers.ProductOptimizationController{}
 	commercePolicyController := &controllers.CommercePolicyController{}
@@ -156,6 +157,19 @@ func SetupRoutes(r *gin.Engine) {
 			public.GET("/news/:id", newsController.GetPublicArticle)
 			public.GET("/news/slug/:slug", newsController.GetPublicArticleBySlug)
 			public.GET("/site-pages/:pageKey", sitePageController.GetPublicPage)
+
+			// Community / player build logs (public read, guest writes behind
+			// IP rate limits + optional Turnstile; a signed-in customer is
+			// attached when a session cookie is present).
+			community := public.Group("/community")
+			{
+				community.GET("/posts", communityController.GetPublicPosts)
+				community.GET("/posts/:slug", communityController.GetPublicPostBySlug)
+				community.POST("/posts", middleware.IPRateLimit("community_post", 3, time.Hour), middleware.OptionalCustomerAuth(), communityController.CreatePublicPost)
+				community.POST("/posts/:slug/comments", middleware.IPRateLimit("community_comment", 10, time.Hour), middleware.OptionalCustomerAuth(), communityController.CreatePublicComment)
+				community.POST("/posts/:slug/like", middleware.IPRateLimit("community_like", 30, time.Minute), communityController.LikePublicPost)
+				community.POST("/comments/:id/like", middleware.IPRateLimit("community_like", 30, time.Minute), communityController.LikePublicComment)
+			}
 
 			// Storefront commercial promise (shipping / warranty / return policy)
 			public.GET("/commerce-policy", middleware.CachePublicGET(middleware.CacheTTLHomepage(), "cache:public:commerce_policy:"), commercePolicyController.GetPublicSettings)
@@ -634,6 +648,19 @@ func SetupRoutes(r *gin.Engine) {
 				news.POST("", newsController.CreateArticle)
 				news.PUT("/:id", newsController.UpdateArticle)
 				news.DELETE("/:id", middleware.AdminOnly(), newsController.DeleteArticle)
+			}
+
+			// Community moderation (editor/admin for reads and status/pin changes,
+			// deletion admin only).
+			communityAdmin := admin.Group("/community")
+			communityAdmin.Use(middleware.EditorOrAdmin())
+			{
+				communityAdmin.GET("/posts", communityController.AdminListPosts)
+				communityAdmin.GET("/comments", communityController.AdminListComments)
+				communityAdmin.PUT("/posts/:id", communityController.AdminUpdatePost)
+				communityAdmin.PUT("/comments/:id", communityController.AdminUpdateComment)
+				communityAdmin.DELETE("/posts/:id", middleware.AdminOnly(), communityController.AdminDeletePost)
+				communityAdmin.DELETE("/comments/:id", middleware.AdminOnly(), communityController.AdminDeleteComment)
 			}
 
 			sitePages := admin.Group("/site-pages")

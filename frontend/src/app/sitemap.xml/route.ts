@@ -10,6 +10,7 @@ const CONTENT_SITEMAP_PATHS = [
   '/sitemap-categories.xml',
   '/sitemap-news.xml',
   '/sitemap-blog.xml',
+  '/sitemap-community.xml',
 ] as const
 
 function buildSitemapIndex(baseUrl: string, productSitemapPaths: readonly string[] = []) {

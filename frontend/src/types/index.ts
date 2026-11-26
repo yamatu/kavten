@@ -1047,3 +1047,90 @@ export interface SpecDraftApproveRequest {
   candidates?: SpecResearchCandidate[];
   overwrite?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Community / player build logs
+// ---------------------------------------------------------------------------
+
+export type CommunityCategory =
+  | 'build-log'
+  | 'first-start'
+  | 'mods-upgrades'
+  | 'troubleshooting'
+  | 'show-tell';
+
+export interface CommunityComment {
+  id: number;
+  post_id: number;
+  parent_id?: number | null;
+  author_name: string;
+  author_badge?: string;
+  body: string;
+  status: string;
+  likes_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CommunityPost {
+  id: number;
+  slug: string;
+  title: string;
+  excerpt: string;
+  body: string;
+  category: CommunityCategory;
+  tag_list: string[];
+  author_name: string;
+  author_location?: string;
+  author_badge?: string;
+  image_urls: string[];
+  video_url?: string;
+  product_slug?: string;
+  product_name?: string;
+  build_hours?: string;
+  difficulty?: string;
+  status: string;
+  is_pinned: boolean;
+  is_featured: boolean;
+  likes_count: number;
+  views_count: number;
+  comments_count: number;
+  created_at: string;
+  updated_at: string;
+  comments?: CommunityComment[];
+}
+
+export interface CommunityStats {
+  total_posts: number;
+  total_comments: number;
+  categories: Record<string, number>;
+}
+
+export interface CommunityFeed extends PaginationResponse<CommunityPost> {
+  stats: CommunityStats;
+}
+
+export interface CommunityPostInput {
+  title: string;
+  body: string;
+  category: CommunityCategory;
+  tags?: string[];
+  author_name: string;
+  author_email?: string;
+  author_location?: string;
+  image_urls?: string[];
+  video_url?: string;
+  product_slug?: string;
+  product_name?: string;
+  build_hours?: string;
+  difficulty?: string;
+  turnstile_token?: string;
+}
+
+export interface CommunityCommentInput {
+  author_name: string;
+  author_email?: string;
+  body: string;
+  parent_id?: number | null;
+  turnstile_token?: string;
+}

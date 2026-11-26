@@ -958,3 +958,59 @@ body {
 @media (prefers-reduced-motion: reduce) { .kv-float { animation: none; } }
 .kv-scrollbar-none { scrollbar-width: none; }
 .kv-scrollbar-none::-webkit-scrollbar { display: none; }
+
+/* Warm page banner used by the content hubs (news, community).
+   A full-bleed ink block reads as a hard cut between two cream sections on
+   phones, so hubs open on a warm wash with ink type instead. */
+.kv-hero-soft {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 2px solid var(--site-ink);
+  background: linear-gradient(135deg, #fff6e7 0%, #fdeee7 52%, #fff9ee 100%);
+  color: var(--site-ink);
+}
+.kv-hero-soft::after {
+  content: '';
+  position: absolute;
+  right: -6rem;
+  bottom: -9rem;
+  width: 20rem;
+  height: 20rem;
+  border-radius: 999px;
+  background: var(--site-yellow);
+  opacity: 0.28;
+  pointer-events: none;
+}
+.kv-hero-soft-inner { position: relative; z-index: 1; }
+.kv-hero-soft .kv-kicker { background: #fff; }
+
+/* Community thread body: readable long-form copy without the cramped defaults
+   of a card grid, and explicit spacing for the lists builders actually use. */
+.kv-article { font-size: 1rem; line-height: 1.8; color: #3a332c; }
+.kv-article h2, .kv-article h3, .kv-article h4 {
+  font-family: var(--font-kv-display), var(--font-geist-sans), system-ui, sans-serif;
+  color: var(--site-ink);
+  letter-spacing: -0.01em;
+  margin: 2rem 0 0.75rem;
+  font-weight: 800;
+}
+.kv-article h2 { font-size: 1.5rem; }
+.kv-article h3 { font-size: 1.2rem; }
+.kv-article p { margin: 0 0 1.1rem; }
+.kv-article ul, .kv-article ol { margin: 0 0 1.2rem; padding-left: 1.35rem; }
+.kv-article ul { list-style: disc; }
+.kv-article ol { list-style: decimal; }
+.kv-article li { margin-bottom: 0.5rem; }
+.kv-article li::marker { color: var(--site-primary); font-weight: 700; }
+.kv-article strong { color: var(--site-ink); font-weight: 800; }
+.kv-article a { color: var(--site-primary); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.kv-article blockquote {
+  margin: 1.4rem 0;
+  border-left: 4px solid var(--site-yellow);
+  background: #fffaf0;
+  padding: 0.85rem 1.1rem;
+  border-radius: 0 0.75rem 0.75rem 0;
+  color: var(--site-muted);
+}
+.kv-article img { border: 2px solid var(--site-ink); border-radius: 1rem; margin: 1.4rem 0; max-width: 100%; height: auto; }
+.kv-article code { background: #f4ece1; border-radius: 0.35rem; padding: 0.1rem 0.35rem; font-size: 0.9em; }

@@ -63,6 +63,9 @@ export async function GET() {
     `- Returns: ${baseUrl}/returns`,
     `- Warranty: ${baseUrl}/warranty-policy`,
     `- Contact: ${baseUrl}/contact (flora@kavten.com)`,
+    `- News: ${baseUrl}/news`,
+    `- Blog: ${baseUrl}/blog`,
+    `- Builders’ Workshop (owner build logs, first starts and troubleshooting threads): ${baseUrl}/community`,
     '',
   ];
 

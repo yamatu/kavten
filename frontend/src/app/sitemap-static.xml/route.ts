@@ -65,6 +65,14 @@ export async function GET() {
       availableLocales: ENGLISH_ONLY,
     },
     {
+      // Thread URLs live in /sitemap-community.xml; this entry is the board itself.
+      pathname: '/community',
+      lastModified,
+      changeFrequency: 'daily',
+      priority: '0.7',
+      availableLocales: ENGLISH_ONLY,
+    },
+    {
       pathname: '/privacy',
       lastModified,
       changeFrequency: 'yearly',

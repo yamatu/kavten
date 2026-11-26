@@ -1,6 +1,7 @@
 import PublicLayout from '@/components/layout/PublicLayout';
 import HomeHero from '@/components/store/home/HomeHero';
 import HomeCategoryTiles from '@/components/store/home/HomeCategoryTiles';
+import EngineDivider from '@/components/store/home/EngineMotifs';
 import { CategoryShelf, FeaturedGrid } from '@/components/store/home/HomeShelves';
 import { BrandMarquee, GiftBanner, StoreFaq, WhyKavten, WorkshopTeaser } from '@/components/store/home/HomeExtras';
 import { generateOrganizationSchema, generateWebsiteSchema } from '@/lib/structured-data';
@@ -88,6 +89,7 @@ export default async function HomePage({
         <HomeHero t={t} href={href} products={localize(featured.data)} total={all.total} />
         <BrandMarquee t={t} href={href} />
         <HomeCategoryTiles t={t} href={href} tree={tree} />
+        <EngineDivider />
         <FeaturedGrid t={t} href={href} products={localize(featured.data.slice(3))} />
         {STORE_CATEGORIES.map((category, index) => (
           <CategoryShelf

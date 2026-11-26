@@ -1,6 +1,8 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { HandThumbUpIcon } from '@heroicons/react/24/outline';
 import { HandThumbUpIcon as HandThumbUpSolid } from '@heroicons/react/24/solid';
@@ -8,6 +10,7 @@ import TurnstileWidget, { type TurnstileWidgetHandle } from '@/components/common
 import { CommunityService } from '@/services/community.service';
 import { TurnstileService } from '@/services/turnstile.service';
 import { formatCommunityDate } from '@/lib/community';
+import { useCustomer } from '@/store/customer.store';
 import type { CommunityComment } from '@/types';
 
 const LIKE_STORAGE_PREFIX = 'kavten.community.liked.';
@@ -60,8 +63,15 @@ export default function CommunityThreadClient({
   const [likes, setLikes] = useState(initialLikes);
   const [liked, setLiked] = useState(() => readLiked(slug));
 
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const pathname = usePathname();
+  const { isAuthenticated, customer } = useCustomer();
+  // Zustand rehydrates from localStorage before the first client render, so the
+  // gate is read only after mount: the server and the first client pass agree.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const canReply = mounted && isAuthenticated;
+  const replyAs = customer?.full_name?.trim() || customer?.email?.split('@')[0] || 'your account';
+
   const [body, setBody] = useState('');
   const [token, setToken] = useState('');
   const [error, setError] = useState('');
@@ -129,8 +139,8 @@ export default function CommunityThreadClient({
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError('');
-    if (name.trim().length < 2) {
-      setError('Please add a name so builders know who they are replying to.');
+    if (!canReply) {
+      setError('Sign in to reply.');
       return;
     }
     if (body.trim().length < 10) {
@@ -145,8 +155,6 @@ export default function CommunityThreadClient({
     setSubmitting(true);
     try {
       const created = await CommunityService.createComment(slug, {
-        author_name: name.trim(),
-        author_email: email.trim() || undefined,
         body: body.trim(),
         turnstile_token: captchaEnabled ? token : undefined,
       });
@@ -156,7 +164,14 @@ export default function CommunityThreadClient({
       setSubmitted(true);
       widgetRef.current?.reset();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not post the reply. Please try again.');
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      setError(
+        status === 401
+          ? 'Your session ended. Sign in again to post this reply.'
+          : err instanceof Error
+            ? err.message
+            : 'Could not post the reply. Please try again.',
+      );
       widgetRef.current?.reset();
       setToken('');
     } finally {
@@ -214,73 +229,76 @@ export default function CommunityThreadClient({
         </ul>
       )}
 
-      <form onSubmit={submit} className="kv-card space-y-4 p-5 sm:p-6">
-        <h3 className="kv-display text-lg font-extrabold">Add a reply</h3>
+      {canReply ? (
+        <form onSubmit={submit} className="kv-card space-y-4 p-5 sm:p-6">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="kv-display text-lg font-extrabold">Add a reply</h3>
+            <p className="text-xs font-semibold text-[var(--site-muted)]">Replying as {replyAs}</p>
+          </div>
 
-        {submitted ? (
-          <p className="rounded-lg bg-[#e3f3ec] px-4 py-3 text-sm font-semibold text-[#1f6f4d]">
-            Thanks - your reply is live below.
-          </p>
-        ) : null}
+          {submitted ? (
+            <p className="rounded-lg bg-[#e3f3ec] px-4 py-3 text-sm font-semibold text-[#1f6f4d]">
+              Thanks - your reply is live below.
+            </p>
+          ) : null}
 
-        <div className="grid gap-3 sm:grid-cols-2">
           <label className="block text-sm font-bold text-[var(--site-ink)]">
-            Name
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              maxLength={60}
+            Reply
+            <textarea
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+              rows={4}
+              maxLength={4000}
               required
               className="mt-1 w-full rounded-lg border-2 border-[var(--site-ink)] px-3 py-2 text-sm font-medium outline-none focus:border-[var(--site-primary)]"
-              placeholder="How should we credit you?"
+              placeholder="What did you try, and what happened? Numbers and part names help."
             />
           </label>
-          <label className="block text-sm font-bold text-[var(--site-ink)]">
-            Email <span className="font-medium text-[var(--site-muted)]">(private, optional)</span>
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              maxLength={120}
-              className="mt-1 w-full rounded-lg border-2 border-[var(--site-ink)] px-3 py-2 text-sm font-medium outline-none focus:border-[var(--site-primary)]"
-              placeholder="Only used for reply notifications"
+
+          {captchaEnabled ? (
+            <TurnstileWidget
+              ref={widgetRef}
+              siteKey={captcha!.site_key}
+              onToken={setToken}
+              onError={() => setError('Verification could not load. Please refresh and try again.')}
             />
-          </label>
-        </div>
+          ) : null}
 
-        <label className="block text-sm font-bold text-[var(--site-ink)]">
-          Reply
-          <textarea
-            value={body}
-            onChange={(event) => setBody(event.target.value)}
-            rows={4}
-            maxLength={4000}
-            required
-            className="mt-1 w-full rounded-lg border-2 border-[var(--site-ink)] px-3 py-2 text-sm font-medium outline-none focus:border-[var(--site-primary)]"
-            placeholder="What did you try, and what happened? Numbers and part names help."
-          />
-        </label>
+          {error ? <p className="text-sm font-semibold text-[var(--site-primary)]">{error}</p> : null}
 
-        {captchaEnabled ? (
-          <TurnstileWidget
-            ref={widgetRef}
-            siteKey={captcha!.site_key}
-            onToken={setToken}
-            onError={() => setError('Verification could not load. Please refresh and try again.')}
-          />
-        ) : null}
-
-        {error ? <p className="text-sm font-semibold text-[var(--site-primary)]">{error}</p> : null}
-
-        <div className="flex flex-wrap items-center gap-3">
-          <button type="submit" disabled={submitting} className="kv-btn kv-btn-red disabled:opacity-60">
-            {submitting ? 'Posting…' : 'Post reply'}
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="submit" disabled={submitting} className="kv-btn kv-btn-red disabled:opacity-60">
+              {submitting ? 'Posting…' : 'Post reply'}
+            </button>
+            <p className="text-xs text-[var(--site-muted)]">
+              Posted with your account name. Links and contact details are held for review.
+            </p>
+          </div>
+        </form>
+      ) : (
+        <div className="kv-card space-y-4 p-5 sm:p-6">
+          <h3 className="kv-display text-lg font-extrabold">Add a reply</h3>
+          <p className="max-w-2xl text-sm leading-6 text-[var(--site-muted)]">
+            Replies come from members with a Kavten account. It takes a minute to sign up, keeps the board free of
+            spam, and puts your name on the notes you leave for the next builder. Threads stay open to read without
+            an account.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href={`/login?returnUrl=${encodeURIComponent(pathname || '/community')}`}
+              className="kv-btn kv-btn-red"
+            >
+              Sign in to reply
+            </Link>
+            <Link href="/register" className="kv-btn kv-btn-white">
+              Create an account
+            </Link>
+          </div>
           <p className="text-xs text-[var(--site-muted)]">
-            No account needed. Replies are moderated if they contain links or contact details.
+            Your email stays private. Only the replies you post are published.
           </p>
         </div>
-      </form>
+      )}
     </section>
   );
 }

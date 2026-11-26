@@ -453,38 +453,46 @@ func (ctrl *CommunityController) CreatePublicComment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request payload"})
 		return
 	}
+
+	body := strings.TrimSpace(req.Body)
+
+	// Replies belong to an account. The route already rejects anonymous calls,
+	// but the identity is re-read here so a reply can never be attributed to a
+	// name the client typed instead of the customer it belongs to. This runs
+	// before the Turnstile check so a signed-out reader is told to sign in
+	// rather than being asked to solve a challenge first.
+	var customer models.Customer
+	cidVal, hasCustomer := c.Get("customer_id")
+	cid, ok := cidVal.(uint)
+	if !hasCustomer || !ok || cid == 0 {
+		c.JSON(http.StatusUnauthorized, models.APIResponse{Success: false, Message: "Sign in to reply", Error: "auth_required"})
+		return
+	}
+	if err := db.First(&customer, cid).Error; err != nil {
+		c.JSON(http.StatusUnauthorized, models.APIResponse{Success: false, Message: "Your session has expired - please sign in again", Error: "auth_required"})
+		return
+	}
+
 	if !verifyCommunityHuman(c, db, req.TurnstileToken) {
 		return
 	}
 
-	body := strings.TrimSpace(req.Body)
-	authorName := strings.TrimSpace(req.AuthorName)
-	authorEmail := strings.TrimSpace(req.AuthorEmail)
-	authorBadge := "Builder"
-
-	var customerID *uint
-	if cidVal, exists := c.Get("customer_id"); exists {
-		if cid, ok := cidVal.(uint); ok && cid > 0 {
-			customerID = &cid
-			var customer models.Customer
-			if err := db.First(&customer, cid).Error; err == nil {
-				if authorName == "" {
-					authorName = strings.TrimSpace(customer.FullName)
-				}
-				if authorEmail == "" {
-					authorEmail = customer.Email
-				}
-				authorBadge = "Community Member"
-			}
-		}
+	authorName := strings.TrimSpace(customer.FullName)
+	if authorName == "" {
+		authorName = strings.TrimSpace(strings.Split(customer.Email, "@")[0])
 	}
+	if utf8.RuneCountInString(authorName) < 2 {
+		authorName = "Kavten Member"
+	}
+	if runes := []rune(authorName); len(runes) > 80 {
+		authorName = strings.TrimSpace(string(runes[:80]))
+	}
+	authorEmail := strings.TrimSpace(customer.Email)
+	authorBadge := "Community Member"
+	customerID := &customer.ID
 
 	if utf8.RuneCountInString(body) < 2 || utf8.RuneCountInString(body) > 4000 {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Reply must be between 2 and 4,000 characters"})
-		return
-	}
-	if utf8.RuneCountInString(authorName) < 2 || utf8.RuneCountInString(authorName) > 80 {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Please enter a display name (2 to 80 characters)"})
 		return
 	}
 

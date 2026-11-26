@@ -158,15 +158,16 @@ func SetupRoutes(r *gin.Engine) {
 			public.GET("/news/slug/:slug", newsController.GetPublicArticleBySlug)
 			public.GET("/site-pages/:pageKey", sitePageController.GetPublicPage)
 
-			// Community / player build logs (public read, guest writes behind
-			// IP rate limits + optional Turnstile; a signed-in customer is
-			// attached when a session cookie is present).
+			// Community / player build logs. Reading is public. New threads stay
+			// open to guests behind an IP rate limit and optional Turnstile so a
+			// first build log needs no account, but replies require a signed-in
+			// customer: an open reply box is the cheapest spam target on the site.
 			community := public.Group("/community")
 			{
 				community.GET("/posts", communityController.GetPublicPosts)
 				community.GET("/posts/:slug", communityController.GetPublicPostBySlug)
 				community.POST("/posts", middleware.IPRateLimit("community_post", 3, time.Hour), middleware.OptionalCustomerAuth(), communityController.CreatePublicPost)
-				community.POST("/posts/:slug/comments", middleware.IPRateLimit("community_comment", 10, time.Hour), middleware.OptionalCustomerAuth(), communityController.CreatePublicComment)
+				community.POST("/posts/:slug/comments", middleware.IPRateLimit("community_comment", 10, time.Hour), middleware.CustomerAuthMiddleware(), communityController.CreatePublicComment)
 				community.POST("/posts/:slug/like", middleware.IPRateLimit("community_like", 30, time.Minute), communityController.LikePublicPost)
 				community.POST("/comments/:id/like", middleware.IPRateLimit("community_like", 30, time.Minute), communityController.LikePublicComment)
 			}

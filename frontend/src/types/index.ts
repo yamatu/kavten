@@ -1128,7 +1128,11 @@ export interface CommunityPostInput {
 }
 
 export interface CommunityCommentInput {
-  author_name: string;
+  /**
+   * Ignored by the API: replies are attributed to the signed-in customer so a
+   * name can never be spoofed. Kept optional for older callers.
+   */
+  author_name?: string;
   author_email?: string;
   body: string;
   parent_id?: number | null;

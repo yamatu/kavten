@@ -28,7 +28,7 @@ export default async function CommunitySharePage() {
                 Share your build
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-[var(--site-muted)] sm:text-lg">
-                No account needed. A few paragraphs, the numbers you measured and one photo are enough to help the next
+                A few paragraphs, the numbers you measured and one photo are enough to help the next
                 owner get their engine running.
               </p>
             </div>

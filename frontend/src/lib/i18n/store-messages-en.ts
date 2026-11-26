@@ -41,7 +41,7 @@ export const storeEn: Record<string, string> = {
   'store.why.4.text': 'Pay with PayPal or card, protected end to end.',
   'store.workshop.kicker': 'Builders’ Workshop',
   'store.workshop.title': 'Built it? Show it.',
-  'store.workshop.text': 'Build logs, first starts and the fixes that saved the day - posted by owners, answered by owners. No account needed to reply.',
+  'store.workshop.text': 'Build logs, first starts and the fixes that saved the day - posted by owners, answered by owners. Reading is open; replies need a free account.',
   'store.workshop.cta': 'Read the workshop',
   'store.workshop.cta2': 'Share your build',
   'store.workshop.board.show': 'Show & Tell: finished builds',

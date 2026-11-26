@@ -29,9 +29,15 @@
 | GET | `/api/v1/public/community/posts` | — | `page` / `page_size`(≤50) / `category` / `search` / `sort=latest\|popular\|discussed`，附 `stats`（总数、回复数、分类计数） |
 | GET | `/api/v1/public/community/posts/:slug` | — | 返回帖子 + 已发布回复，并 `views_count + 1` |
 | POST | `/api/v1/public/community/posts` | 3 / 小时 / IP | 发帖；带会话 cookie 时自动关联 `customer_id` 与购买徽章 |
-| POST | `/api/v1/public/community/posts/:slug/comments` | 10 / 小时 / IP | 回复，支持 `parent_id` 一级嵌套 |
+| POST | `/api/v1/public/community/posts/:slug/comments` | 10 / 小时 / IP + **必须登录** | 回复，支持 `parent_id` 一级嵌套；匿名返回 401 `auth_required` |
 | POST | `/api/v1/public/community/posts/:slug/like` | 30 / 分钟 / IP | 点赞 |
 | POST | `/api/v1/public/community/comments/:id/like` | 30 / 分钟 / IP | 回复点赞 |
+
+回复鉴权：**回复必须使用已登录的客户账号**（`CustomerAuthMiddleware`），匿名请求直接 401
+`auth_required`，前端 `/community/<slug>` 会把信息框换成登录入口（带回跳 `returnUrl`）。
+回复的作者名与邮箱一律取自账号（`author_name` / `author_email` 请求字段被忽略），
+徽章固定为 `Community Member`，所以刷垃圾信息至少需要一个真实注册账号。
+发帖（新帖）仍允许游客，靠 IP 限流 + Turnstile 控制，避免第一次分享建车日志就被注册墙挡住。
 
 人机验证：若后台 `Human Verification`（Turnstile）已启用，发帖/回复必须带 `turnstile_token`，
 失败返回 400 `captcha_failed`，服务不可用返回 503 `captcha_unavailable`；未配置时自动跳过。

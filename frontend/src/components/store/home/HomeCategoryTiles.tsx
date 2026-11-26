@@ -3,17 +3,21 @@ import Link from 'next/link';
 import { ArrowUpRightIcon } from '@heroicons/react/24/outline';
 import type { Category } from '@/types';
 import { STORE_CATEGORIES, categoryHref, categoryLabelKey } from '@/lib/store-catalog';
+import EnginePattern from '@/components/store/home/EngineMotifs';
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
 
 export default function HomeCategoryTiles({ t, href, tree }: { t: T; href: (p: string) => string; tree: Category[] }) {
   const bySlug = new Map(tree.map((node) => [node.slug, node]));
   return (
-    <section className="bg-white py-16 lg:py-20">
-      <div className="kv-container">
+    <section className="relative isolate overflow-hidden bg-white py-16 lg:py-20" aria-labelledby="kavten-categories">
+      {/* Hairline engine line-art sits in the white itself: the section reads as
+          designed rather than empty, and the tiles keep their contrast. */}
+      <EnginePattern id="categories" />
+      <div className="kv-container relative">
         <div className="mb-10 flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
-            <h2 className="kv-display text-4xl font-extrabold text-[var(--site-ink)] sm:text-5xl">{t('store.cats.title')}</h2>
+            <h2 id="kavten-categories" className="kv-display text-4xl font-extrabold text-[var(--site-ink)] sm:text-5xl">{t('store.cats.title')}</h2>
             <p className="mt-3 max-w-xl text-[var(--site-muted)]">{t('store.cats.text')}</p>
           </div>
           <Link href={href('/products')} className="kv-btn kv-btn-yellow self-start md:self-auto">{t('store.allProducts')} →</Link>

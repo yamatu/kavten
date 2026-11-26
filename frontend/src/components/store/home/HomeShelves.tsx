@@ -3,6 +3,7 @@ import { ArrowRightIcon } from '@heroicons/react/24/outline';
 import type { Product } from '@/types';
 import StoreProductCard from '@/components/store/StoreProductCard';
 import { categoryHref, categoryLabelKey, type StoreCategory } from '@/lib/store-catalog';
+import EnginePattern from '@/components/store/home/EngineMotifs';
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -16,6 +17,7 @@ export function FeaturedGrid({ t, href, products }: { t: T; href: (p: string) =>
       <div className="kv-container">
         <div className="relative overflow-hidden rounded-[2rem] border-2 border-[var(--site-ink)]/10 bg-gradient-to-br from-[#fff5e6] via-[#fdeee7] to-[#fff9ee] px-5 py-10 sm:rounded-[2.5rem] sm:px-8 sm:py-12 lg:px-12 lg:py-14">
           <div className="kv-dots pointer-events-none absolute inset-0 opacity-25" aria-hidden />
+          <EnginePattern id="featured" className="opacity-[0.075]" />
           <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-[var(--site-primary)]/10 blur-3xl" aria-hidden />
           <div className="pointer-events-none absolute -bottom-28 -left-16 h-64 w-64 rounded-full bg-[var(--site-yellow)]/30 blur-3xl" aria-hidden />
 

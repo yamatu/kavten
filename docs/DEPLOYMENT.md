@@ -219,3 +219,22 @@ WHERE h.reason IN ('competitor-match','url-normalized','similarity-tightened');
 
 评价体系口径：页面展示与 JSON-LD 只用 `is_approved && (is_verified || !source)` 的子集，
 转录来源的评论只展示、不计分；有订单的评价才标 `verified`。
+
+## 10. 临时下线 / 恢复
+
+改东西期间不想让线上对外服务时，用「维护模式」而不是停 nginx 或删 DNS：
+
+```bash
+scp scripts/maintenance-on.sh root@<host>:/root/ && ssh root@<host> 'bash /root/maintenance-on.sh'
+scp scripts/maintenance-off.sh root@<host>:/root/ && ssh root@<host> 'bash /root/maintenance-off.sh'
+```
+
+- 开关是 `/etc/nginx/snippets/kavten-maintenance.conf`，被 vhost 的 3 个 server 块在
+  server 级 include；里面有 `return 503` + `Retry-After: 86400` + `Cache-Control: no-store`
+- 为什么不是 404/410：503 是「暂时不可用」，Google 保留索引并按 `Retry-After` 重试；
+  404/410 会真的把 URL 从索引里摘掉，恢复后还要重新积累
+- 为什么不用 `error_page`：nginx 的 `error_page` 不会拦截 `return 503` 产生响应
+  （只路由模块级错误），所以下线期间页面体是 nginx 内置的 503 页，靠响应头表达维护语义
+- 同一脚本还会 `docker compose stop`，数据保留在 `kavten_mysql_data` / `kavten_redis_data` 卷里
+- 恢复：`maintenance-off.sh` 删掉 include → `nginx -t` → reload → 起 mysql/redis → 起 backend/frontend
+- 恢复后自检：`node scripts/verify_redirects.mjs https://kavten.com`（应输出 `REDIRECT_CHECK_OK`）

@@ -241,7 +241,9 @@ func (ctrl *CommunityController) GetPublicPosts(c *gin.Context) {
 		orderClause = "is_pinned DESC, comments_count DESC, created_at DESC"
 	}
 
-	var posts []models.CommunityPost
+	// Start from an empty slice, not a nil one: `Find` leaves nil untouched when
+	// nothing matches, and `null` for a list makes every client guard it.
+	posts := make([]models.CommunityPost, 0, pageSize)
 	offset := (page - 1) * pageSize
 	if err := query.Order(orderClause).Offset(offset).Limit(pageSize).Find(&posts).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to load community posts"})
@@ -316,7 +318,7 @@ func (ctrl *CommunityController) GetPublicPostBySlug(c *gin.Context) {
 		return
 	}
 
-	var comments []models.CommunityComment
+	comments := make([]models.CommunityComment, 0, 8)
 	db.Where("post_id = ? AND status = ?", post.ID, models.CommunityStatusPublished).
 		Order("created_at ASC").
 		Find(&comments)
@@ -578,7 +580,7 @@ func (ctrl *CommunityController) AdminListPosts(c *gin.Context) {
 	var total int64
 	query.Count(&total)
 
-	var posts []models.CommunityPost
+	posts := make([]models.CommunityPost, 0, pageSize)
 	query.Order("is_pinned DESC, created_at DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&posts)
 	for i := range posts {
 		posts[i].HydrateComputed()
@@ -676,7 +678,7 @@ func (ctrl *CommunityController) AdminListComments(c *gin.Context) {
 	var total int64
 	query.Count(&total)
 
-	var comments []models.CommunityComment
+	comments := make([]models.CommunityComment, 0, pageSize)
 	query.Order("created_at DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&comments)
 	totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
 	if totalPages < 1 {

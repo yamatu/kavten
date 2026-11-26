@@ -95,3 +95,8 @@ host, so a local run emits `http://127.0.0.1` in canonical tags and sitemaps whi
 every real deployment uses `SITE_URL` (default `https://kavten.com`). Any audit
 taken against a public host therefore reflects production URLs, not the
 developer's machine.
+
+`docker/nginx.conf` resolves the `frontend` container name once, at start-up.
+Recreating the frontend (`docker compose up -d --build frontend`) gives it a new
+IP, so run `docker compose restart nginx` afterwards or every request returns
+502 with `connect() failed (113: Host is unreachable)`.

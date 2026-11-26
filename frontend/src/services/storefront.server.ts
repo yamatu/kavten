@@ -2,24 +2,45 @@ import type { Category, Product } from '@/types';
 
 const apiBase = () => `${(process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8080').replace(/\/+$/, '')}/api/v1/public`;
 
-async function getJSON<T>(path: string, tags: string[]): Promise<T | null> {
+/**
+ * The backend could not be reached (or answered 5xx).
+ *
+ * Catalog reads are the page's whole point, so this is not the same thing as
+ * "this category is empty". Returning `[]` on a failed fetch let an ISR render
+ * freeze an empty storefront for the whole revalidate window - a backend
+ * restart during deploy was enough to serve "no products" for five minutes.
+ * Throwing instead leaves the last good render in place (stale-while-revalidate)
+ * and lets the route fail loudly when there is nothing good to serve.
+ */
+export class StorefrontUnavailableError extends Error {
+  constructor(path: string, cause?: unknown) {
+    super(`Storefront unavailable: ${path}${cause ? ` (${String(cause)})` : ''}`);
+    this.name = 'StorefrontUnavailableError';
+  }
+}
+
+async function getJSON<T>(path: string, tags: string[], strict = false): Promise<T | null> {
   try {
     const res = await fetch(`${apiBase()}${path}`, {
       next: { revalidate: 300, tags },
       signal: AbortSignal.timeout(15000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) throw new StorefrontUnavailableError(path, `HTTP ${res.status}`);
     const json = (await res.json()) as { success?: boolean; data?: T };
     return json.success === false ? null : (json.data ?? null);
   } catch (error) {
     // The Docker build has no backend; the first runtime request refills the cache.
     if (process.env.NEXT_PHASE === 'phase-production-build') return null;
     console.error('storefront fetch failed', path, error);
+    if (strict) {
+      throw error instanceof StorefrontUnavailableError ? error : new StorefrontUnavailableError(path, error);
+    }
     return null;
   }
 }
 
 export async function getStoreCategoryTree(): Promise<Category[]> {
+  // Navigation degrades to the static catalog when this fails, so it stays lenient.
   return (await getJSON<Category[]>('/categories', ['categories'])) || [];
 }
 
@@ -28,7 +49,7 @@ export type StoreProductPage = { data: Product[]; total: number; page: number; p
 export async function getStoreProducts(params: Record<string, string | number>): Promise<StoreProductPage> {
   const entries = Object.entries(params).filter(([, v]) => v !== '' && v !== undefined && v !== null);
   const qs = new URLSearchParams({ is_active: 'true', ...Object.fromEntries(entries.map(([k, v]) => [k, String(v)])) });
-  const page = await getJSON<Partial<StoreProductPage>>(`/products?${qs.toString()}`, ['all-products']);
+  const page = await getJSON<Partial<StoreProductPage>>(`/products?${qs.toString()}`, ['all-products'], true);
   return {
     data: (page?.data || []).map(toCardProduct),
     total: page?.total || 0,
